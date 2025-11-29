@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Map as MapLibre, Marker, Popup } from "maplibre-gl";
+import maplibregl, { Map as MapLibre, Marker, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import LocationSearch from "@/components/LocationSearch";
 import { cacheService } from "@/services/cacheService";
@@ -7,7 +7,8 @@ import { useTheme } from "@/components/ThemeProvider";
 
 interface MapProps {
   onLocationSelect: (lng: number, lat: number, address?: string) => void;
-  selectedLocation: { lng: number; lat: number; address?: string } | null;
+  selectedLocations: Array<{ lng: number; lat: number; address?: string }>;
+  activeLocationIndex?: number;
   facilities: Array<{
     id: string;
     name: string;
@@ -22,12 +23,13 @@ interface MapProps {
   radiusOptions: number[];
   hasCalculated?: boolean;
   visibleCategories: Record<string, boolean>;
-  satelliteEnabled?: boolean; // new optional prop to toggle satellite imagery
+  satelliteEnabled?: boolean;
 }
 
 const Map: React.FC<MapProps> = ({
   onLocationSelect,
-  selectedLocation,
+  selectedLocations,
+  activeLocationIndex = 0,
   facilities,
   showRadius,
   radiusOptions,
@@ -40,9 +42,15 @@ const Map: React.FC<MapProps> = ({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [styleLoaded, setStyleLoaded] = useState(false);
   const markersRef = useRef<Marker[]>([]);
-  const selectedLocationMarkerRef = useRef<Marker | null>(null);
+  const selectedLocationMarkersRef = useRef<Marker[]>([]);
   const popupRef = useRef<Popup | null>(null);
   const onLocationSelectRef = useRef(onLocationSelect);
+  
+  // Update ref when prop changes to avoid stale closures
+  useEffect(() => {
+    onLocationSelectRef.current = onLocationSelect;
+  }, [onLocationSelect]);
+
   const { theme } = useTheme();
 
   const isMapReady = mapLoaded && styleLoaded;
@@ -52,11 +60,6 @@ const Map: React.FC<MapProps> = ({
     theme === "dark" ||
     (theme === "system" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches);
-
-  // Update the ref when the callback changes
-  useEffect(() => {
-    onLocationSelectRef.current = onLocationSelect;
-  }, [onLocationSelect]);
 
   // Helper function to get address from coordinates with caching
   const getAddressFromCoordinates = async (
@@ -581,125 +584,51 @@ const Map: React.FC<MapProps> = ({
     }
   }, [satelliteEnabled, mapLoaded]);
 
-  // Update selected location marker and radius circles
+  // Update selected location markers and radius circles
   useEffect(() => {
     if (!map.current || !isMapReady) {
       return;
     }
 
-    if (!selectedLocation) {
-      // Clear existing marker when no location is selected
-      if (selectedLocationMarkerRef.current) {
-        selectedLocationMarkerRef.current.remove();
-        selectedLocationMarkerRef.current = null;
+    // Clear existing selected location markers
+    selectedLocationMarkersRef.current.forEach((marker) => marker.remove());
+    selectedLocationMarkersRef.current = [];
+
+    // Clear radius circles
+    const layersToRemove = [
+      "radius-250",
+      "radius-500",
+      "radius-250-fill",
+      "radius-500-fill",
+    ];
+    const sourcesToRemove = ["radius-250", "radius-500"];
+
+    // We only clear/draw radius for the LAST selected location if showing radius
+    // Or maybe we shouldn't show radius for all 3? Let's show for the last one or all?
+    // For simplicity, let's clear all first.
+    layersToRemove.forEach((layerId) => {
+      if (map.current!.getLayer(layerId)) {
+        map.current!.removeLayer(layerId);
       }
+    });
+    sourcesToRemove.forEach((sourceId) => {
+      if (map.current!.getSource(sourceId)) {
+        map.current!.removeSource(sourceId);
+      }
+    });
+
+    if (selectedLocations.length === 0) {
       return;
     }
 
-    // Wait for style to be fully loaded before manipulating sources/layers
-    if (!map.current.isStyleLoaded()) {
-      return;
-    }
-
-    // Only clear radius circles if we're showing new ones or if there are no facilities
-    // This prevents clearing radius when just selecting a new location
-    if (!facilities.length || !showRadius) {
-      const layersToRemove = [
-        "radius-250",
-        "radius-500",
-        "radius-1000",
-        "radius-250-fill",
-        "radius-500-fill",
-        "radius-1000-fill",
-      ];
-      const sourcesToRemove = ["radius-250", "radius-500", "radius-1000"];
-
-      layersToRemove.forEach((layerId) => {
-        if (map.current!.getLayer(layerId)) {
-          map.current!.removeLayer(layerId);
-        }
-      });
-
-      sourcesToRemove.forEach((sourceId) => {
-        if (map.current!.getSource(sourceId)) {
-          map.current!.removeSource(sourceId);
-        }
-      });
-
-      // No more pulse intervals to clear
-    }
-
-    if (showRadius && radiusOptions.length > 0) {
-      radiusOptions.forEach((radius, index) => {
-        try {
-          const sourceId = `radius-${radius}`;
-          const layerId = `radius-${radius}`;
-
-          const circleData = createCircle(
-            selectedLocation.lng,
-            selectedLocation.lat,
-            radius
-          );
-
-          map.current!.addSource(sourceId, {
-            type: "geojson",
-            data: circleData,
-          });
-
-          map.current!.addLayer({
-            id: layerId,
-            type: "line",
-            source: sourceId,
-            paint: {
-              "line-color":
-                index === 0 ? "#22c55e" : index === 1 ? "#eab308" : "#ef4444",
-              "line-width": 3,
-              "line-opacity": 0.8,
-            },
-            layout: {
-              "line-join": "round",
-              "line-cap": "round",
-            },
-          });
-
-          // Add a fill layer for better visual appeal (static, no pulse)
-          map.current!.addLayer(
-            {
-              id: `${layerId}-fill`,
-              type: "fill",
-              source: sourceId,
-              paint: {
-                "fill-color":
-                  index === 0 ? "#22c55e" : index === 1 ? "#eab308" : "#ef4444",
-                "fill-opacity": index === 0 ? 0.08 : index === 1 ? 0.06 : 0.04,
-              },
-            },
-            layerId
-          ); // Insert after the line layer
-        } catch (error) {
-          // Error adding radius circle
-        }
-      });
-    }
-
-    // Only update marker if location changed or marker doesn't exist
-    const currentMarker = selectedLocationMarkerRef.current;
-    const shouldUpdateMarker =
-      !currentMarker ||
-      currentMarker.getLngLat().lng !== selectedLocation.lng ||
-      currentMarker.getLngLat().lat !== selectedLocation.lat;
-
-    if (shouldUpdateMarker) {
-      // Remove existing selected location marker
-      if (selectedLocationMarkerRef.current) {
-        selectedLocationMarkerRef.current.remove();
-        selectedLocationMarkerRef.current = null;
-      }
-
-      // Add selected location marker
+    // Draw markers for all selected locations
+    selectedLocations.forEach((loc, index) => {
       const selectedMarkerEl = document.createElement("div");
-      const markerColor = hasCalculated ? "#ef4444" : "#2563eb"; // Red if calculated, blue if not
-      const markerIcon = hasCalculated ? "📍" : "🎯";
+      const isSelected = index === activeLocationIndex && hasCalculated;
+      const markerColor = isSelected ? "#ef4444" : "#2563eb";
+      const markerLabel = index + 1;
+      const scale = isSelected ? 1.2 : 1.0;
+      const zIndex = isSelected ? 1002 : 1000;
 
       selectedMarkerEl.style.cssText = `
         background-color: ${markerColor};
@@ -711,24 +640,105 @@ const Map: React.FC<MapProps> = ({
         align-items: center;
         justify-content: center;
         font-size: 16px;
-        z-index: 1000;
+        color: white;
+        font-weight: bold;
+        z-index: ${zIndex};
         cursor: pointer;
+        transform: scale(${scale});
+        transition: transform 0.2s ease, background-color 0.2s ease;
       `;
-      selectedMarkerEl.innerHTML = markerIcon;
+      selectedMarkerEl.innerHTML = `${markerLabel}`;
 
-      selectedLocationMarkerRef.current = new Marker(selectedMarkerEl)
-        .setLngLat([selectedLocation.lng, selectedLocation.lat])
+      const marker = new Marker(selectedMarkerEl)
+        .setLngLat([loc.lng, loc.lat])
         .addTo(map.current!);
+      
+      selectedLocationMarkersRef.current.push(marker);
+    });
+
+    // Draw radius for the ACTIVE selected location if enabled
+    if (showRadius && radiusOptions.length > 0 && hasCalculated) {
+       const activeLoc = selectedLocations[activeLocationIndex];
+       if (activeLoc) {
+           radiusOptions.forEach((radius, index) => {
+            try {
+              const sourceId = `radius-${radius}`;
+              const layerId = `radius-${radius}`;
+    
+              const circleData = createCircle(
+                activeLoc.lng,
+                activeLoc.lat,
+                radius
+              );
+    
+              map.current!.addSource(sourceId, {
+                type: "geojson",
+                data: circleData,
+              });
+    
+              map.current!.addLayer({
+                id: layerId,
+                type: "line",
+                source: sourceId,
+                paint: {
+                  "line-color":
+                    index === 0 ? "#22c55e" : index === 1 ? "#eab308" : "#ef4444",
+                  "line-width": 3,
+                  "line-opacity": 0.8,
+                },
+                layout: {
+                  "line-join": "round",
+                  "line-cap": "round",
+                },
+              });
+    
+              map.current!.addLayer(
+                {
+                  id: `${layerId}-fill`,
+                  type: "fill",
+                  source: sourceId,
+                  paint: {
+                    "fill-color":
+                      index === 0 ? "#22c55e" : index === 1 ? "#eab308" : "#ef4444",
+                    "fill-opacity": index === 0 ? 0.08 : index === 1 ? 0.06 : 0.04,
+                  },
+                },
+                layerId
+              );
+            } catch (error) {
+              // Error adding radius circle
+            }
+          });
+       }
     }
 
-    // Center map on selected location
-    map.current.flyTo({
-      center: [selectedLocation.lng, selectedLocation.lat],
-      zoom: 14,
-      duration: 1000,
-    });
+    // Fit bounds or fly to active location
+    if (selectedLocations.length > 0) {
+        if (hasCalculated && selectedLocations[activeLocationIndex]) {
+            // If we have results and an active location, fly to it to show facilities and radius
+            map.current.flyTo({
+                center: [selectedLocations[activeLocationIndex].lng, selectedLocations[activeLocationIndex].lat],
+                zoom: 15,
+                duration: 1000,
+            });
+        } else if (selectedLocations.length > 1) {
+            // If just selecting multiple locations, fit bounds to see all
+            const bounds = new maplibregl.LngLatBounds();
+            selectedLocations.forEach(loc => bounds.extend([loc.lng, loc.lat]));
+            map.current.fitBounds(bounds, { padding: 100, maxZoom: 14 });
+        } else {
+            // Single location selection
+            map.current.flyTo({
+                center: [selectedLocations[0].lng, selectedLocations[0].lat],
+                zoom: 14,
+                duration: 1000,
+            });
+        }
+    }
+
   }, [
-    selectedLocation,
+    selectedLocations,
+    activeLocationIndex,
     showRadius,
     radiusOptions,
     isMapReady,

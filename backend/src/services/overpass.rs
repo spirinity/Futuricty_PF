@@ -18,12 +18,14 @@ impl OverpassService {
 
     pub async fn fetch_facilities(
         &self,
-        queries: Vec<(String, String)>, // (Category, Query)
+        queries: Vec<(String, String)>,
     ) -> Result<Vec<(String, Vec<OverpassElement>)>, Box<dyn Error + Send + Sync>> {
         let results = stream::iter(queries)
             .map(|(category, query)| {
                 let client = self.client.clone();
                 async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
                     let response = client
                         .post(OVERPASS_API_URL)
                         .body(query)
@@ -38,7 +40,7 @@ impl OverpassService {
                     Ok((category, data.elements))
                 }
             })
-            .buffer_unordered(5) // Process up to 5 requests concurrently
+            .buffer_unordered(2)
             .collect::<Vec<Result<(String, Vec<OverpassElement>), Box<dyn Error + Send + Sync>>>>()
             .await;
 
@@ -46,7 +48,7 @@ impl OverpassService {
         for result in results {
             match result {
                 Ok(val) => facilities.push(val),
-                Err(e) => eprintln!("Error fetching data: {}", e), // Log error but continue
+                Err(e) => eprintln!("Error fetching data: {}", e),
             }
         }
 

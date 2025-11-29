@@ -47,6 +47,11 @@ pub struct Facility {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CalculateScoreRequest {
+    pub locations: Vec<SingleLocationRequest>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SingleLocationRequest {
     pub lat: f64,
     pub lng: f64,
 }

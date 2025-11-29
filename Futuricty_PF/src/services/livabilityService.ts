@@ -66,58 +66,58 @@ export const getEmptyLivabilityData = (): LiveabilityData => ({
 });
 
 export const calculateLivabilityScore = async (
-  lat: number,
-  lng: number,
-  address: string
-): Promise<{ data: LiveabilityData; facilities: Facility[] }> => {
+  locations: Array<{ lat: number; lng: number; address: string }>
+): Promise<Array<{ data: LiveabilityData; facilities: Facility[] }>> => {
   try {
     const response = await fetch(`${BACKEND_URL}/calculate-score`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ lat, lng }),
+      body: JSON.stringify({
+        locations: locations.map((l) => ({ lat: l.lat, lng: l.lng })),
+      }),
     });
 
     if (!response.ok) {
       throw new Error(`Backend error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const dataList = await response.json();
 
-    const livabilityData: LiveabilityData = {
-      overall: data.scores.overall,
-      subscores: {
-        services: data.scores.services,
-        mobility: data.scores.mobility,
-        safety: data.scores.safety,
-        environment: data.scores.environment,
-      },
-      location: {
-        address: address, // Use the address passed from frontend
-        coordinates: { lng, lat },
-      },
-      facilityCounts: data.facility_counts,
-      nearbyFacilities: data.nearby_facilities,
-    };
+    return dataList.map((data: any, index: number) => {
+      const livabilityData: LiveabilityData = {
+        overall: data.scores.overall,
+        subscores: {
+          services: data.scores.services,
+          mobility: data.scores.mobility,
+          safety: data.scores.safety,
+          environment: data.scores.environment,
+        },
+        location: {
+          address: locations[index].address,
+          coordinates: { lat: locations[index].lat, lng: locations[index].lng },
+        },
+        facilityCounts: data.facility_counts,
+        nearbyFacilities: data.nearby_facilities,
+      };
 
-    // Map the backend facilities to the frontend format
-    // The backend returns Facility struct which matches our interface, but we need to ensure types match
-    const facilities: Facility[] = (data.facilities || []).map((f: any) => ({
-      id: f.id,
-      name: f.name,
-      category: f.category,
-      lng: f.lng,
-      lat: f.lat,
-      distance: f.distance,
-      contribution: f.contribution,
-      tags: f.tags
-    }));
+      const facilities: Facility[] = (data.facilities || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        category: f.category,
+        lng: f.lng,
+        lat: f.lat,
+        distance: f.distance,
+        contribution: f.contribution,
+        tags: f.tags,
+      }));
 
-    return {
-      data: livabilityData,
-      facilities: facilities,
-    };
+      return {
+        data: livabilityData,
+        facilities: facilities,
+      };
+    });
   } catch (error) {
     console.error("Error calculating score:", error);
     throw error;

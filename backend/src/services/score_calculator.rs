@@ -5,10 +5,8 @@ use std::collections::HashMap;
 
 use crate::services::category_detection::detect_category;
 
-/// Earth radius in meters
 const R: f64 = 6_371_000.0;
 
-/// Haversine distance calculation
 fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let d_lat = (lat2 - lat1).to_radians();
     let d_lon = (lon2 - lon1).to_radians();
@@ -22,36 +20,32 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     R * c
 }
 
-/// Contribution formula
 fn calculate_contribution(distance: f64, category: &str) -> f64 {
-    // Max radius 1000m
-    if distance > 1000.0 {
+    if distance > 500.0 {
         return 0.0;
     }
 
     let (max_contribution, decay) = match category {
-        "health" => (10.0, 0.8),
-        "education" => (10.0, 0.9),
-        "market" => (8.0, 0.85),
-        "transport" => (10.0, 0.95),
-        "walkability" => (12.0, 0.85),
-        "recreation" => (8.0, 0.8),
-        "safety" => (6.0, 0.7),
-        "accessibility" => (4.0, 0.9),
-        "police" => (8.0, 0.6),
-        "religious" => (6.0, 0.75),
-        _ => (5.0, 0.8),
+        "health" => (20.0, 0.7),
+        "education" => (20.0, 0.8),
+        "market" => (20.0, 0.8),
+        "transport" => (20.0, 0.9),
+        "walkability" => (15.0, 0.8),
+        "recreation" => (15.0, 0.7),
+        "safety" => (12.0, 0.6),
+        "accessibility" => (10.0, 0.8),
+        "police" => (20.0, 0.5),
+        "religious" => (12.0, 0.7),
+        _ => (10.0, 0.8),
     };
 
-    let norm = distance / 1000.0;
+    let norm = distance / 500.0;
     let contribution = max_contribution * (1.0 - norm).powf(decay);
 
-    // Minimum contribution biar gak nol
     let min_contribution = max_contribution * 0.1;
     contribution.max(min_contribution)
 }
 
-/// Process facilities using Rayon — final version
 pub fn process_facilities(
     elements: &[OverpassElement],
     category: &str,
@@ -101,7 +95,6 @@ pub fn process_facilities(
         .collect()
 }
 
-/// FINAL Calculate total scores + counts
 pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
     let mut counts = FacilityCounts::default();
     let mut map: HashMap<String, f64> = HashMap::new();
@@ -124,7 +117,6 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
         *map.entry(f.category.clone()).or_insert(0.0) += f.contribution;
     }
 
-    // Subscores
     let services =
         map.get("health").unwrap_or(&0.0)
         + map.get("education").unwrap_or(&0.0)
@@ -138,19 +130,31 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
     let safety =
         map.get("safety").unwrap_or(&0.0)
         + map.get("police").unwrap_or(&0.0)
-        + map.get("accessibility").unwrap_or(&0.0);
+        + map.get("accessibility").unwrap_or(&0.0)
+        + (map.get("health").unwrap_or(&0.0) * 0.5); 
 
     let environment =
         *map.get("recreation").unwrap_or(&0.0);
 
     let normalize = |v: f64| v.clamp(0.0, 100.0);
 
+    let services_score = normalize(services);
+    let mobility_score = normalize(mobility);
+    let safety_score = normalize(safety);
+    let environment_score = normalize(environment);
+
+    let overall = 
+        (services_score * 0.30) + 
+        (mobility_score * 0.25) + 
+        (safety_score * 0.25) + 
+        (environment_score * 0.20);
+
     let scores = Scores {
-        services: normalize(services),
-        mobility: normalize(mobility),
-        safety: normalize(safety),
-        environment: normalize(environment),
-        overall: normalize((services + mobility + safety + environment) / 4.0),
+        services: services_score,
+        mobility: mobility_score,
+        safety: safety_score,
+        environment: environment_score,
+        overall: normalize(overall),
     };
 
     (scores, counts)

@@ -22,9 +22,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
     let wheelchair = tags.get("wheelchair").map(|s| s.as_str()).unwrap_or("");
     let man_made = tags.get("man_made").map(|s| s.as_str()).unwrap_or("");
 
-    // ------------------------------------------
-    // PRIORITY 1 — EDUCATION
-    // ------------------------------------------
     if matches!(amenity, "school" | "university" | "college" | "kindergarten" | "library")
         || name.contains("sekolah")
         || name.contains("sma")
@@ -42,9 +39,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "education";
     }
 
-    // ------------------------------------------
-    // PRIORITY 2 — POLICE
-    // ------------------------------------------
     if amenity == "police"
         || name.contains("polisi")
         || name.contains("polres")
@@ -57,9 +51,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "police";
     }
 
-    // ------------------------------------------
-    // PRIORITY 3 — MARKET / SHOP / FOOD / FUEL
-    // ------------------------------------------
     if !shop.is_empty()
         || matches!(amenity, 
             "restaurant" | "cafe" | "fast_food" | "food_court" | "bar" | "pub" | "ice_cream" | "coffee_shop"
@@ -81,9 +72,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "market";
     }
 
-    // ------------------------------------------
-    // PRIORITY 4 — HEALTH
-    // ------------------------------------------
     if matches!(amenity, 
         "hospital" | "clinic" | "doctors" | "dentist" | "pharmacy" | "veterinary"
     )
@@ -99,9 +87,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "health";
     }
 
-    // ------------------------------------------
-    // PRIORITY 5 — TRANSPORT
-    // ------------------------------------------
     if matches!(public_transport, "platform" | "station" | "stop_position")
         || highway == "bus_stop"
         || matches!(railway, "station" | "halt" | "tram_stop")
@@ -117,9 +102,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "transport";
     }
 
-    // ------------------------------------------
-    // PRIORITY 6 — RELIGIOUS
-    // ------------------------------------------
     if matches!(
         amenity,
         "place_of_worship" | "mosque" | "church" | "temple" | "synagogue"
@@ -134,9 +116,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "religious";
     }
 
-    // ------------------------------------------
-    // PRIORITY 7 — RECREATION
-    // ------------------------------------------
     if matches!(
         leisure,
         "park" | "playground" | "sports_centre" | "fitness_centre" | "swimming_pool" | "garden"
@@ -152,9 +131,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "recreation";
     }
 
-    // ------------------------------------------
-    // PRIORITY 8 — WALKABILITY
-    // ------------------------------------------
     if matches!(highway, "footway" | "pedestrian" | "path" | "steps")
         || matches!(route, "foot" | "hiking" | "walking")
         || amenity == "bench"
@@ -171,9 +147,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "walkability";
     }
 
-    // ------------------------------------------
-    // PRIORITY 9 — ACCESSIBILITY
-    // ------------------------------------------
     if barrier == "kerb"
         || kerb == "lowered"
         || kerb == "flush"
@@ -185,9 +158,6 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "accessibility";
     }
 
-    // ------------------------------------------
-    // PRIORITY 10 — SAFETY
-    // ------------------------------------------
     if highway == "street_lamp"
         || lit == "yes"
         || !traffic_calming.is_empty()
@@ -197,6 +167,5 @@ pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'stat
         return "safety";
     }
 
-    // fallback
     "market"
 }
