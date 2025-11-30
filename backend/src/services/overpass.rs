@@ -44,13 +44,17 @@ impl OverpassService {
             .collect::<Vec<Result<(String, Vec<OverpassElement>), Box<dyn Error + Send + Sync>>>>()
             .await;
 
-        let mut facilities = Vec::new();
-        for result in results {
-            match result {
-                Ok(val) => facilities.push(val),
-                Err(e) => eprintln!("Error fetching data: {}", e),
-            }
-        }
+        let facilities = results.into_iter()
+            .filter_map(|result| {
+                match result {
+                    Ok(val) => Some(val),
+                    Err(e) => {
+                        eprintln!("Error fetching data: {}", e);
+                        None
+                    }
+                }
+            })
+            .collect();
 
         Ok(facilities)
     }

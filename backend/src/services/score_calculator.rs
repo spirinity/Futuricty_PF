@@ -96,26 +96,27 @@ pub fn process_facilities(
 }
 
 pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
-    let mut counts = FacilityCounts::default();
-    let mut map: HashMap<String, f64> = HashMap::new();
+    let (counts, map) = facilities.iter().fold(
+        (FacilityCounts::default(), HashMap::new()),
+        |(mut counts, mut map), f| {
+            match f.category.as_str() {
+                "health" => counts.health += 1,
+                "education" => counts.education += 1,
+                "market" => counts.market += 1,
+                "transport" => counts.transport += 1,
+                "walkability" => counts.walkability += 1,
+                "recreation" => counts.recreation += 1,
+                "safety" => counts.safety += 1,
+                "police" => counts.police += 1,
+                "religious" => counts.religious += 1,
+                "accessibility" => counts.accessibility += 1,
+                _ => {}
+            }
 
-    for f in facilities {
-        match f.category.as_str() {
-            "health" => counts.health += 1,
-            "education" => counts.education += 1,
-            "market" => counts.market += 1,
-            "transport" => counts.transport += 1,
-            "walkability" => counts.walkability += 1,
-            "recreation" => counts.recreation += 1,
-            "safety" => counts.safety += 1,
-            "police" => counts.police += 1,
-            "religious" => counts.religious += 1,
-            "accessibility" => counts.accessibility += 1,
-            _ => {}
-        }
-
-        *map.entry(f.category.clone()).or_insert(0.0) += f.contribution;
-    }
+            *map.entry(f.category.clone()).or_insert(0.0) += f.contribution;
+            (counts, map)
+        },
+    );
 
     let services =
         map.get("health").unwrap_or(&0.0)

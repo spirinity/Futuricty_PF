@@ -9,6 +9,9 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
+use futures::stream::{self, StreamExt};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::models::{CalculateScoreRequest, LocationData};
 use crate::services::overpass::OverpassService;
@@ -37,52 +40,60 @@ async fn calculate_score(
     Json(payload): Json<CalculateScoreRequest>,
 ) -> Result<Json<Vec<LocationData>>, (StatusCode, String)> {
 
-    let overpass_service = std::sync::Arc::new(OverpassService::new());
-    let mut location_data_list = Vec::new();
+    let overpass_service = Arc::new(OverpassService::new());
 
-    for loc in payload.locations {
-        let categories = vec![
-            "health", "education", "market", "transport", "walkability",
-            "recreation", "safety", "police", "religious", "accessibility"
-        ];
+    let location_data_list = stream::iter(payload.locations)
+        .then(|loc| {
+            let service = overpass_service.clone();
+            async move {
+                let categories = vec![
+                    "health", "education", "market", "transport", "walkability",
+                    "recreation", "safety", "police", "religious", "accessibility"
+                ];
 
-        let queries: Vec<(String, String)> = categories.iter().map(|&cat| {
-            let query = generate_overpass_query(cat, loc.lat, loc.lng);
-            (cat.to_string(), query)
-        }).collect();
+                let queries: Vec<(String, String)> = categories.iter().map(|&cat| {
+                    let query = generate_overpass_query(cat, loc.lat, loc.lng);
+                    (cat.to_string(), query)
+                }).collect();
 
-        let facilities_data = overpass_service.fetch_facilities(queries).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                let facilities_data = service.fetch_facilities(queries).await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        let mut all_facilities = Vec::new();
-        let mut seen_ids = std::collections::HashSet::new();
+                let all_facilities = facilities_data.into_iter()
+                    .flat_map(|(category, elements)| {
+                        process_facilities(&elements, &category, loc.lat, loc.lng)
+                    })
+                    .filter(|f| f.distance <= 500.0)
+                    .fold((Vec::new(), HashSet::new()), |(mut acc, mut seen), f| {
+                        if seen.insert(f.id.clone()) {
+                            acc.push(f);
+                        }
+                        (acc, seen)
+                    })
+                    .0;
 
-        for (category, elements) in facilities_data {
-            let processed = process_facilities(&elements, &category, loc.lat, loc.lng);
-            for facility in processed {
-                if facility.distance <= 500.0 && seen_ids.insert(facility.id.clone()) {
-                    all_facilities.push(facility);
-                }
+                let (scores, facility_counts) = calculate_scores(&all_facilities);
+
+                let nearby_facilities: Vec<String> = all_facilities.iter()
+                    .take(10)
+                    .map(|f| f.name.clone())
+                    .collect();
+                
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                Ok(LocationData {
+                    address: format!("{}, {}", loc.lat, loc.lng),
+                    facility_counts,
+                    scores,
+                    nearby_facilities,
+                    facilities: all_facilities,
+                })
             }
-        }
-
-        let (scores, facility_counts) = calculate_scores(&all_facilities);
-
-        let nearby_facilities: Vec<String> = all_facilities.iter()
-            .take(10)
-            .map(|f| f.name.clone())
-            .collect();
-
-        location_data_list.push(LocationData {
-            address: format!("{}, {}", loc.lat, loc.lng),
-            facility_counts,
-            scores,
-            nearby_facilities,
-            facilities: all_facilities,
-        });
-        
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+        })
+        .collect::<Vec<Result<LocationData, (StatusCode, String)>>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<LocationData>, (StatusCode, String)>>()?;
 
     Ok(Json(location_data_list))
 }
