@@ -1,0 +1,167 @@
+{
+  "education": {
+    "amenity_equals": [
+      "school",
+      "university",
+      "college",
+      "kindergarten",
+      "library"
+    ],
+    "name_contains": [
+      "sekolah",
+      "sma",
+      "smp",
+      "sd ",
+      "smk",
+      "universitas",
+      "univ",
+      "kampus",
+      "tk",
+      "paud",
+      "perpustakaan",
+      "library"
+    ]
+  },
+  "police": {
+    "amenity_equals": ["police"],
+    "name_contains": [
+      "polisi",
+      "polres",
+      "polsek",
+      "polda",
+      "satlantas",
+      "satpol",
+      "police"
+    ]
+  },
+  "market": {
+    "amenity_equals": [
+      "restaurant",
+      "cafe",
+      "fast_food",
+      "food_court",
+      "bar",
+      "pub",
+      "ice_cream",
+      "coffee_shop",
+      "fuel",
+      "gas_station",
+      "petrol_station",
+      "service_station"
+    ],
+    "name_contains": [
+      "spbu",
+      "pom bensin",
+      "gas station",
+      "pertamina",
+      "shell",
+      "warung",
+      "toko",
+      "shop",
+      "store",
+      "market",
+      "mall",
+      "plaza"
+    ],
+    "shop_non_empty": true
+  },
+  "health": {
+    "amenity_equals": [
+      "hospital",
+      "clinic",
+      "doctors",
+      "dentist",
+      "pharmacy",
+      "veterinary"
+    ],
+    "name_contains": [
+      "rumah sakit",
+      "rsud",
+      "klinik",
+      "apotek",
+      "dokter",
+      "puskesmas",
+      "poli"
+    ],
+    "name_prefixes": ["rs "],
+    "name_prefix_exclude": ["sekolah"]
+  },
+  "transport": {
+    "public_transport_equals": ["platform", "station", "stop_position"],
+    "highway_equals": ["bus_stop"],
+    "railway_equals": ["station", "halt", "tram_stop"],
+    "name_contains": [
+      "halte",
+      "bus stop",
+      "terminal",
+      "stasiun",
+      "station",
+      "mrt",
+      "lrt",
+      "angkot"
+    ]
+  },
+  "religious": {
+    "amenity_equals": [
+      "place_of_worship",
+      "mosque",
+      "church",
+      "temple",
+      "synagogue",
+      "hindu_temple",
+      "buddhist_temple"
+    ],
+    "name_contains": ["masjid", "gereja", "katedral", "pura", "vihara", "candi"]
+  },
+  "recreation": {
+    "leisure_equals": [
+      "park",
+      "playground",
+      "sports_centre",
+      "fitness_centre",
+      "swimming_pool",
+      "garden"
+    ],
+    "amenity_equals": ["cinema", "theatre"],
+    "name_contains": [
+      "taman",
+      "gym",
+      "fitness",
+      "playground",
+      "bioskop",
+      "cinema",
+      "kolam renang"
+    ]
+  },
+  "walkability": {
+    "highway_equals": [
+      "footway",
+      "pedestrian",
+      "path",
+      "steps",
+      "crossing",
+      "street_lamp"
+    ],
+    "route_equals": ["foot", "hiking", "walking"],
+    "amenity_equals": ["bench", "drinking_water"],
+    "natural_equals": ["tree_row", "hedge"],
+    "landuse_equals": ["grass", "meadow"],
+    "lit_yes": true,
+    "traffic_calming_present": true
+  },
+  "accessibility": {
+    "barrier_equals": ["kerb"],
+    "kerb_equals": ["lowered", "flush"],
+    "highway_equals": ["elevator"],
+    "wheelchair_equals": ["yes"],
+    "amenity_equals": ["toilets"],
+    "tactile_paving_yes": true
+  },
+  "safety": {
+    "highway_equals": ["street_lamp"],
+    "lit_yes": true,
+    "traffic_calming_present": true,
+    "man_made_equals": ["surveillance"],
+    "amenity_equals": ["fire_station", "hospital"]
+  }
+}

@@ -1,7 +1,35 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Macro untuk auto-generate common derive traits (Debug, Deserialize, Serialize, Clone)
+/// Pure functional: eliminates repetitive derive decorators
+#[macro_export]
+macro_rules! serde_clone {
+    ($($body:tt)*) => {
+        #[derive(Debug, Deserialize, Serialize, Clone)]
+        $($body)*
+    };
+}
+
+/// Macro untuk struct yang perlu Default trait juga
+#[macro_export]
+macro_rules! serde_clone_default {
+    ($($body:tt)*) => {
+        #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+        $($body)*
+    };
+}
+
+/// Macro untuk struct yang tidak perlu Clone
+#[macro_export]
+macro_rules! serde_only {
+    ($($body:tt)*) => {
+        #[derive(Debug, Deserialize, Serialize)]
+        $($body)*
+    };
+}
+
+serde_clone!(
 pub struct LocationData {
     pub address: String,
     pub facility_counts: FacilityCounts,
@@ -9,8 +37,9 @@ pub struct LocationData {
     pub nearby_facilities: Vec<String>,
     pub facilities: Vec<Facility>,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+serde_clone_default!(
 pub struct FacilityCounts {
     pub health: usize,
     pub education: usize,
@@ -23,8 +52,9 @@ pub struct FacilityCounts {
     pub religious: usize,
     pub accessibility: usize,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+serde_clone_default!(
 pub struct Scores {
     pub overall: f64,
     pub services: f64,
@@ -32,8 +62,9 @@ pub struct Scores {
     pub safety: f64,
     pub environment: f64,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+serde_clone!(
 pub struct Facility {
     pub id: String,
     pub name: String,
@@ -44,24 +75,28 @@ pub struct Facility {
     pub contribution: f64,
     pub tags: Option<HashMap<String, String>>,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize)]
+serde_only!(
 pub struct CalculateScoreRequest {
     pub locations: Vec<SingleLocationRequest>,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+serde_clone!(
 pub struct SingleLocationRequest {
     pub lat: f64,
     pub lng: f64,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize)]
+serde_only!(
 pub struct OverpassResponse {
     pub elements: Vec<OverpassElement>,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+serde_clone!(
 pub struct OverpassElement {
     pub id: u64,
     #[serde(rename = "type")]
@@ -71,9 +106,11 @@ pub struct OverpassElement {
     pub center: Option<Center>,
     pub tags: Option<HashMap<String, String>>,
 }
+);
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+serde_clone!(
 pub struct Center {
     pub lat: f64,
     pub lon: f64,
 }
+);

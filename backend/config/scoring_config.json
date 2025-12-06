@@ -1,0 +1,78 @@
+{
+  "contribution_weights": {
+    "health": {
+      "max_contribution": 20.0,
+      "decay_factor": 0.7,
+      "min_contribution_ratio": 0.1
+    },
+    "education": {
+      "max_contribution": 20.0,
+      "decay_factor": 0.8,
+      "min_contribution_ratio": 0.1
+    },
+    "market": {
+      "max_contribution": 20.0,
+      "decay_factor": 0.8,
+      "min_contribution_ratio": 0.1
+    },
+    "transport": {
+      "max_contribution": 20.0,
+      "decay_factor": 0.9,
+      "min_contribution_ratio": 0.1
+    },
+    "walkability": {
+      "max_contribution": 15.0,
+      "decay_factor": 0.8,
+      "min_contribution_ratio": 0.1
+    },
+    "recreation": {
+      "max_contribution": 15.0,
+      "decay_factor": 0.7,
+      "min_contribution_ratio": 0.1
+    },
+    "safety": {
+      "max_contribution": 12.0,
+      "decay_factor": 0.6,
+      "min_contribution_ratio": 0.1
+    },
+    "accessibility": {
+      "max_contribution": 10.0,
+      "decay_factor": 0.8,
+      "min_contribution_ratio": 0.1
+    },
+    "police": {
+      "max_contribution": 20.0,
+      "decay_factor": 0.5,
+      "min_contribution_ratio": 0.1
+    },
+    "religious": {
+      "max_contribution": 12.0,
+      "decay_factor": 0.7,
+      "min_contribution_ratio": 0.1
+    },
+    "default": {
+      "max_contribution": 10.0,
+      "decay_factor": 0.8,
+      "min_contribution_ratio": 0.1
+    }
+  },
+  "score_weights": {
+    "services_weight": 0.3,
+    "mobility_weight": 0.25,
+    "safety_weight": 0.25,
+    "environment_weight": 0.2,
+    "health_contribution_to_safety": 0.5,
+    "score_clamp_min": 0.0,
+    "score_clamp_max": 100.0
+  },
+  "category_mappings": {
+    "services": ["health", "education", "market", "religious"],
+    "mobility": ["transport", "walkability"],
+    "safety": ["safety", "police", "accessibility"],
+    "environment": ["recreation"]
+  },
+  "name_extraction": {
+    "fallback_fields": ["name", "amenity", "shop", "leisure", "highway"],
+    "default_name": "facility"
+  }
+}

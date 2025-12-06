@@ -40,6 +40,8 @@ interface LiveabilityData {
 }
 
 const BACKEND_URL = "http://localhost:3000";
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 180000; // 3 minutes - increased for large PBF file processing
 
 export const getEmptyLivabilityData = (): LiveabilityData => ({
   overall: 0,
@@ -68,58 +70,94 @@ export const getEmptyLivabilityData = (): LiveabilityData => ({
 export const calculateLivabilityScore = async (
   locations: Array<{ lat: number; lng: number; address: string }>
 ): Promise<Array<{ data: LiveabilityData; facilities: Facility[] }>> => {
-  try {
-    const response = await fetch(`${BACKEND_URL}/calculate-score`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        locations: locations.map((l) => ({ lat: l.lat, lng: l.lng })),
-      }),
-    });
+  for (let retry = 0; retry < MAX_RETRIES; retry++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-    if (!response.ok) {
-      throw new Error(`Backend error: ${response.statusText}`);
+      const response = await fetch(`${BACKEND_URL}/calculate-score`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          locations: locations.map((l) => ({ lat: l.lat, lng: l.lng })),
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Backend error: ${response.statusText}`);
+      }
+
+      const dataList = await response.json();
+
+      return dataList.map((data: any, index: number) => {
+        const livabilityData: LiveabilityData = {
+          overall: data.scores.overall,
+          subscores: {
+            services: data.scores.services,
+            mobility: data.scores.mobility,
+            safety: data.scores.safety,
+            environment: data.scores.environment,
+          },
+          location: {
+            address: locations[index].address,
+            coordinates: {
+              lat: locations[index].lat,
+              lng: locations[index].lng,
+            },
+          },
+          facilityCounts: data.facility_counts,
+          nearbyFacilities: data.nearby_facilities,
+        };
+
+        const facilities: Facility[] = (data.facilities || []).map(
+          (f: any) => ({
+            id: f.id,
+            name: f.name,
+            category: f.category,
+            lng: f.lng,
+            lat: f.lat,
+            distance: f.distance,
+            contribution: f.contribution,
+            tags: f.tags,
+          })
+        );
+
+        return {
+          data: livabilityData,
+          facilities: facilities,
+        };
+      });
+    } catch (error) {
+      const isLastRetry = retry === MAX_RETRIES - 1;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      if (errorMessage === "The operation was aborted.") {
+        console.warn(`Request timeout (retry ${retry + 1}/${MAX_RETRIES})`);
+      } else {
+        console.warn(
+          `Error calculating score (retry ${retry + 1}/${MAX_RETRIES}):`,
+          error
+        );
+      }
+
+      if (isLastRetry) {
+        throw new Error(
+          `Failed to calculate livability score after ${MAX_RETRIES} attempts. ${errorMessage}`
+        );
+      }
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delayMs = 1000 * Math.pow(2, retry);
+      console.log(`Retrying in ${delayMs}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-
-    const dataList = await response.json();
-
-    return dataList.map((data: any, index: number) => {
-      const livabilityData: LiveabilityData = {
-        overall: data.scores.overall,
-        subscores: {
-          services: data.scores.services,
-          mobility: data.scores.mobility,
-          safety: data.scores.safety,
-          environment: data.scores.environment,
-        },
-        location: {
-          address: locations[index].address,
-          coordinates: { lat: locations[index].lat, lng: locations[index].lng },
-        },
-        facilityCounts: data.facility_counts,
-        nearbyFacilities: data.nearby_facilities,
-      };
-
-      const facilities: Facility[] = (data.facilities || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        category: f.category,
-        lng: f.lng,
-        lat: f.lat,
-        distance: f.distance,
-        contribution: f.contribution,
-        tags: f.tags,
-      }));
-
-      return {
-        data: livabilityData,
-        facilities: facilities,
-      };
-    });
-  } catch (error) {
-    console.error("Error calculating score:", error);
-    throw error;
   }
+
+  throw new Error("Unexpected error in calculateLivabilityScore");
 };

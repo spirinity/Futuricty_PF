@@ -1,171 +1,235 @@
 use std::collections::HashMap;
+use once_cell::sync::Lazy;
+use serde_json::{json, Value};
 
+/// Pure function to extract tag value as string slice
+/// Returns empty string if tag not found or value is None
+/// Lifetime parameter 'a ensures returned &str is borrowed from tags
+fn get_tag_as_str<'a>(tags: &'a HashMap<String, String>, key: &str) -> &'a str {
+    tags.get(key).map(|s| s.as_str()).unwrap_or("")
+}
 
-pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> &'static str {
+static PATTERN_CONFIG: Lazy<Value> = Lazy::new(load_category_patterns);
+
+/// Load category pattern configuration from JSON file
+fn load_category_patterns() -> Value {
+    let path = "config/category_patterns.json";
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            serde_json::from_str(&content).unwrap_or_else(|e| {
+                eprintln!("ERROR: Failed to parse category_patterns.json: {}", e);
+                json!({})
+            })
+        },
+        Err(e) => {
+            eprintln!("ERROR: Could not read category_patterns.json from '{}': {}", path, e);
+            json!({})
+        }
+    }
+}
+
+fn get_list(config: &Value, category: &str, key: &str, default: &[&str]) -> Vec<String> {
+    config
+        .get(category)
+        .and_then(|cat| cat.get(key))
+        .and_then(|arr| arr.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .unwrap_or_else(|| default.iter().map(|s| s.to_string()).collect())
+}
+
+fn get_bool(config: &Value, category: &str, key: &str, default: bool) -> bool {
+    config
+        .get(category)
+        .and_then(|cat| cat.get(key))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(default)
+}
+
+fn name_contains_any(name: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|p| name.contains(p))
+}
+
+/// Category detection helper: Check if element is Education
+fn is_education(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let amenity_list = get_list(config, "education", "amenity_equals", &[]);
+    let name_list = get_list(config, "education", "name_contains", &[]);
+
+    amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Police
+fn is_police(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let amenity_list = get_list(config, "police", "amenity_equals", &[]);
+    let name_list = get_list(config, "police", "name_contains", &[]);
+
+    amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Market/Shopping
+fn is_market(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let shop = get_tag_as_str(tags, "shop");
+
+    let amenity_list = get_list(config, "market", "amenity_equals", &[]);
+    let name_list = get_list(config, "market", "name_contains", &[]);
+    let shop_flag = get_bool(config, "market", "shop_non_empty", true);
+
+    (shop_flag && !shop.is_empty())
+        || amenity_list.iter().any(|a| a == amenity)
+        || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Health facility
+fn is_health(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let amenity_list = get_list(config, "health", "amenity_equals", &[]);
+    let name_list = get_list(config, "health", "name_contains", &[]);
+    let prefix_list = get_list(config, "health", "name_prefixes", &[]);
+    let exclude_prefix = get_list(config, "health", "name_prefix_exclude", &[]);
+
+    let prefix_match = prefix_list
+        .iter()
+        .any(|p| name.starts_with(p) && !exclude_prefix.iter().any(|e| name.contains(e)));
+
+    amenity_list.iter().any(|a| a == amenity) || prefix_match || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Public Transport
+fn is_transport(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let public_transport = get_tag_as_str(tags, "public_transport");
+    let highway = get_tag_as_str(tags, "highway");
+    let railway = get_tag_as_str(tags, "railway");
+
+    let pt_list = get_list(config, "transport", "public_transport_equals", &[]);
+    let highway_list = get_list(config, "transport", "highway_equals", &[]);
+    let railway_list = get_list(config, "transport", "railway_equals", &[]);
+    let name_list = get_list(config, "transport", "name_contains", &[]);
+
+    pt_list.iter().any(|v| v == public_transport)
+        || highway_list.iter().any(|v| v == highway)
+        || railway_list.iter().any(|v| v == railway)
+        || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Religious place
+fn is_religious(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let amenity_list = get_list(config, "religious", "amenity_equals", &[]);
+    let name_list = get_list(config, "religious", "name_contains", &[]);
+
+    amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element is Recreation facility
+fn is_recreation(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let leisure = get_tag_as_str(tags, "leisure");
+
+    let leisure_list = get_list(config, "recreation", "leisure_equals", &[]);
+    let amenity_list = get_list(config, "recreation", "amenity_equals", &[]);
+    let name_list = get_list(config, "recreation", "name_contains", &[]);
+
+    leisure_list.iter().any(|v| v == leisure)
+        || amenity_list.iter().any(|v| v == amenity)
+        || name_contains_any(name, &name_list)
+}
+
+/// Category detection helper: Check if element supports Walkability
+fn is_walkability(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
+    let highway = get_tag_as_str(tags, "highway");
+    let amenity = get_tag_as_str(tags, "amenity");
+    let route = get_tag_as_str(tags, "route");
+    let traffic_calming = get_tag_as_str(tags, "traffic_calming");
+    let lit = get_tag_as_str(tags, "lit");
+    let natural = get_tag_as_str(tags, "natural");
+    let landuse = get_tag_as_str(tags, "landuse");
+
+    let highway_list = get_list(config, "walkability", "highway_equals", &[]);
+    let route_list = get_list(config, "walkability", "route_equals", &[]);
+    let amenity_list = get_list(config, "walkability", "amenity_equals", &[]);
+    let natural_list = get_list(config, "walkability", "natural_equals", &[]);
+    let landuse_list = get_list(config, "walkability", "landuse_equals", &[]);
+    let lit_yes = get_bool(config, "walkability", "lit_yes", true);
+    let traffic_flag = get_bool(config, "walkability", "traffic_calming_present", true);
+
+    highway_list.iter().any(|v| v == highway)
+        || route_list.iter().any(|v| v == route)
+        || amenity_list.iter().any(|v| v == amenity)
+        || (lit_yes && lit == "yes")
+        || (traffic_flag && !traffic_calming.is_empty())
+        || natural_list.iter().any(|v| v == natural)
+        || landuse_list.iter().any(|v| v == landuse)
+}
+
+/// Category detection helper: Check if element has Accessibility features
+fn is_accessibility(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let barrier = get_tag_as_str(tags, "barrier");
+    let kerb = get_tag_as_str(tags, "kerb");
+    let highway = get_tag_as_str(tags, "highway");
+    let wheelchair = get_tag_as_str(tags, "wheelchair");
+
+    let barrier_list = get_list(config, "accessibility", "barrier_equals", &[]);
+    let kerb_list = get_list(config, "accessibility", "kerb_equals", &[]);
+    let highway_list = get_list(config, "accessibility", "highway_equals", &[]);
+    let wheelchair_list = get_list(config, "accessibility", "wheelchair_equals", &[]);
+    let amenity_list = get_list(config, "accessibility", "amenity_equals", &[]);
+    let tactile_yes = get_bool(config, "accessibility", "tactile_paving_yes", true);
+
+    barrier_list.iter().any(|v| v == barrier)
+        || kerb_list.iter().any(|v| v == kerb)
+        || highway_list.iter().any(|v| v == highway)
+        || wheelchair_list.iter().any(|v| v == wheelchair)
+        || amenity_list.iter().any(|v| v == amenity)
+        || (tactile_yes && tags.get("tactile_paving").map(|s| s == "yes").unwrap_or(false))
+}
+
+/// Category detection helper: Check if element supports Safety
+fn is_safety(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
+    let amenity = get_tag_as_str(tags, "amenity");
+    let highway = get_tag_as_str(tags, "highway");
+    let lit = get_tag_as_str(tags, "lit");
+    let traffic_calming = get_tag_as_str(tags, "traffic_calming");
+    let man_made = get_tag_as_str(tags, "man_made");
+
+    let highway_list = get_list(config, "safety", "highway_equals", &[]);
+    let lit_yes = get_bool(config, "safety", "lit_yes", true);
+    let traffic_flag = get_bool(config, "safety", "traffic_calming_present", true);
+    let man_made_list = get_list(config, "safety", "man_made_equals", &[]);
+    let amenity_list = get_list(config, "safety", "amenity_equals", &[]);
+
+    highway_list.iter().any(|v| v == highway)
+        || (lit_yes && lit == "yes")
+        || (traffic_flag && !traffic_calming.is_empty())
+        || man_made_list.iter().any(|v| v == man_made)
+        || amenity_list.iter().any(|v| v == amenity)
+}
+
+/// Pure functional category detection
+/// Checks each category in order and returns the first matching category
+/// Returns None if no category matches
+pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> Option<&'static str> {
     let name = raw_name.to_lowercase();
 
-    let amenity = tags.get("amenity").map(|s| s.as_str()).unwrap_or("");
-    let shop = tags.get("shop").map(|s| s.as_str()).unwrap_or("");
-    let leisure = tags.get("leisure").map(|s| s.as_str()).unwrap_or("");
-    let highway = tags.get("highway").map(|s| s.as_str()).unwrap_or("");
-    let railway = tags.get("railway").map(|s| s.as_str()).unwrap_or("");
-    let public_transport = tags.get("public_transport").map(|s| s.as_str()).unwrap_or("");
-    let barrier = tags.get("barrier").map(|s| s.as_str()).unwrap_or("");
-    let kerb = tags.get("kerb").map(|s| s.as_str()).unwrap_or("");
-    let natural = tags.get("natural").map(|s| s.as_str()).unwrap_or("");
-    let landuse = tags.get("landuse").map(|s| s.as_str()).unwrap_or("");
-    let route = tags.get("route").map(|s| s.as_str()).unwrap_or("");
-    let lit = tags.get("lit").map(|s| s.as_str()).unwrap_or("");
-    let traffic_calming = tags.get("traffic_calming").map(|s| s.as_str()).unwrap_or("");
-    let crossing = tags.get("crossing").map(|s| s.as_str()).unwrap_or("");
-    let zone_traffic = tags.get("zone:traffic").map(|s| s.as_str()).unwrap_or("");
-    let wheelchair = tags.get("wheelchair").map(|s| s.as_str()).unwrap_or("");
-    let man_made = tags.get("man_made").map(|s| s.as_str()).unwrap_or("");
+    let cfg = &PATTERN_CONFIG;
 
-    if matches!(amenity, "school" | "university" | "college" | "kindergarten" | "library")
-        || name.contains("sekolah")
-        || name.contains("sma")
-        || name.contains("smp")
-        || name.contains("sd ")
-        || name.contains("smk")
-        || name.contains("universitas")
-        || name.contains("univ")
-        || name.contains("kampus")
-        || name.contains("tk")
-        || name.contains("paud")
-        || name.contains("perpustakaan")
-        || name.contains("library")
-    {
-        return "education";
-    }
+    if is_education(cfg, tags, &name) { return Some("education"); }
+    if is_police(cfg, tags, &name) { return Some("police"); }
+    if is_market(cfg, tags, &name) { return Some("market"); }
+    if is_health(cfg, tags, &name) { return Some("health"); }
+    if is_transport(cfg, tags, &name) { return Some("transport"); }
+    if is_religious(cfg, tags, &name) { return Some("religious"); }
+    if is_recreation(cfg, tags, &name) { return Some("recreation"); }
+    if is_walkability(cfg, tags, &name) { return Some("walkability"); }
+    if is_accessibility(cfg, tags, &name) { return Some("accessibility"); }
+    if is_safety(cfg, tags, &name) { return Some("safety"); }
 
-    if amenity == "police"
-        || name.contains("polisi")
-        || name.contains("polres")
-        || name.contains("polsek")
-        || name.contains("polda")
-        || name.contains("satlantas")
-        || name.contains("satpol")
-        || name.contains("police")
-    {
-        return "police";
-    }
-
-    if !shop.is_empty()
-        || matches!(amenity, 
-            "restaurant" | "cafe" | "fast_food" | "food_court" | "bar" | "pub" | "ice_cream" | "coffee_shop"
-        )
-        || matches!(amenity, "fuel" | "gas_station" | "petrol_station" | "service_station")
-        || name.contains("spbu")
-        || name.contains("pom bensin")
-        || name.contains("gas station")
-        || name.contains("pertamina")
-        || name.contains("shell")
-        || name.contains("warung")
-        || name.contains("toko")
-        || name.contains("shop")
-        || name.contains("store")
-        || name.contains("market")
-        || name.contains("mall")
-        || name.contains("plaza")
-    {
-        return "market";
-    }
-
-    if matches!(amenity, 
-        "hospital" | "clinic" | "doctors" | "dentist" | "pharmacy" | "veterinary"
-    )
-        || name.contains("rumah sakit")
-        || (name.starts_with("rs ") && !name.contains("sekolah"))
-        || name.contains("rsud")
-        || name.contains("klinik")
-        || name.contains("apotek")
-        || name.contains("dokter")
-        || name.contains("puskesmas")
-        || name.contains("poli")
-    {
-        return "health";
-    }
-
-    if matches!(public_transport, "platform" | "station" | "stop_position")
-        || highway == "bus_stop"
-        || matches!(railway, "station" | "halt" | "tram_stop")
-        || name.contains("halte")
-        || name.contains("bus stop")
-        || name.contains("terminal")
-        || name.contains("stasiun")
-        || name.contains("station")
-        || name.contains("mrt")
-        || name.contains("lrt")
-        || name.contains("angkot")
-    {
-        return "transport";
-    }
-
-    if matches!(
-        amenity,
-        "place_of_worship" | "mosque" | "church" | "temple" | "synagogue"
-            | "hindu_temple" | "buddhist_temple"
-    ) || name.contains("masjid")
-        || name.contains("gereja")
-        || name.contains("katedral")
-        || name.contains("pura")
-        || name.contains("vihara")
-        || name.contains("candi")
-    {
-        return "religious";
-    }
-
-    if matches!(
-        leisure,
-        "park" | "playground" | "sports_centre" | "fitness_centre" | "swimming_pool" | "garden"
-    ) || matches!(amenity, "cinema" | "theatre")
-        || name.contains("taman")
-        || name.contains("gym")
-        || name.contains("fitness")
-        || name.contains("playground")
-        || name.contains("bioskop")
-        || name.contains("cinema")
-        || name.contains("kolam renang")
-    {
-        return "recreation";
-    }
-
-    if matches!(highway, "footway" | "pedestrian" | "path" | "steps")
-        || matches!(route, "foot" | "hiking" | "walking")
-        || amenity == "bench"
-        || amenity == "drinking_water"
-        || highway == "street_lamp"
-        || !traffic_calming.is_empty()
-        || lit == "yes"
-        || natural == "tree_row"
-        || natural == "hedge"
-        || landuse == "grass"
-        || landuse == "meadow"
-        || (highway == "crossing")
-    {
-        return "walkability";
-    }
-
-    if barrier == "kerb"
-        || kerb == "lowered"
-        || kerb == "flush"
-        || highway == "elevator"
-        || wheelchair == "yes"
-        || amenity == "toilets"
-        || tags.get("tactile_paving").map(|s| s == "yes").unwrap_or(false)
-    {
-        return "accessibility";
-    }
-
-    if highway == "street_lamp"
-        || lit == "yes"
-        || !traffic_calming.is_empty()
-        || man_made == "surveillance"
-        || matches!(amenity, "fire_station" | "hospital")
-    {
-        return "safety";
-    }
-
-    "market"
+    None
 }

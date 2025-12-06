@@ -1,0 +1,103 @@
+{
+  "queries": {
+    "health": {
+      "description": "Fasilitas kesehatan: rumah sakit, klinik, apotek, dokter, puskesmas",
+      "node_amenity": "hospital|clinic|doctors|dentist|pharmacy|veterinary",
+      "way_amenity": "hospital|clinic|doctors|dentist|pharmacy|veterinary",
+      "node_name": "rumah sakit|rsud|klinik|apotek|apotik|dokter|puskesmas|poli",
+      "way_name": "rumah sakit|rsud|klinik|apotek|apotik|dokter|puskesmas|poli"
+    },
+    "education": {
+      "description": "Fasilitas pendidikan: sekolah, universitas, perpustakaan",
+      "node_amenity": "school|university|college|kindergarten|library",
+      "way_amenity": "school|university|college|kindergarten|library",
+      "node_name": "sekolah|sd|smp|sma|smk|universitas|univ|kampus|tk|paud|perpustakaan|library",
+      "way_name": "sekolah|sd|smp|sma|smk|universitas|univ|kampus|tk|paud|perpustakaan|library"
+    },
+    "market": {
+      "description": "Fasilitas belanja dan kuliner: toko, restoran, cafe, SPBU",
+      "node_shop": ".*",
+      "way_shop": ".*",
+      "node_amenity": "restaurant|cafe|fast_food|food_court|bar|pub|ice_cream|coffee_shop|shop|store|market|retail|food|beverage|fuel|gas_station|petrol_station|service_station",
+      "way_amenity": "restaurant|cafe|fast_food|food_court|bar|pub|ice_cream|coffee_shop|shop|store|market|retail|food|beverage|fuel|gas_station|petrol_station|service_station",
+      "node_name": "spbu|pom bensin|gas station|petrol|fuel|bensin|solar|pertamina|shell|bp|esso|caltex|toko|warung|shop|store|market|mall|plaza",
+      "way_name": "spbu|pom bensin|gas station|petrol|fuel|bensin|solar|pertamina|shell|bp|esso|caltex|toko|warung|shop|store|market|mall|plaza"
+    },
+    "transport": {
+      "description": "Transportasi publik: halte, stasiun, terminal",
+      "node_public_transport": "platform|station|stop_position",
+      "way_public_transport": "platform|station",
+      "node_highway": "bus_stop",
+      "node_railway": "station|halt|tram_stop",
+      "node_name": "halte|bus stop|terminal|stasiun|station|mrt|lrt|transjakarta|angkot",
+      "way_name": "halte|bus stop|terminal|stasiun|station|mrt|lrt|transjakarta|angkot"
+    },
+    "walkability": {
+      "description": "Infrastruktur pejalan kaki: trotoar, crossing, pedestrian zone",
+      "way_highway": "footway|pedestrian|path|steps|bridleway",
+      "way_sidewalk": "both|left|right|separate",
+      "way_footway": "sidewalk|crossing",
+      "node_highway": "crossing|street_lamp",
+      "way_pedestrian": "yes|designated|zone",
+      "way_route": "foot|hiking|walking",
+      "node_amenity": "bench|drinking_water",
+      "way_amenity": "bench|drinking_water",
+      "way_lit": "yes"
+    },
+    "recreation": {
+      "description": "Fasilitas rekreasi: taman, playground, kolam renang, gym",
+      "node_leisure": "park|playground|sports_centre|fitness_centre|swimming_pool|garden",
+      "way_leisure": "park|playground|sports_centre|fitness_centre|swimming_pool|garden",
+      "node_amenity": "cinema|theatre",
+      "way_amenity": "cinema|theatre",
+      "node_name": "taman|park|playground|kolam renang|swimming|gym|fitness|bioskop|cinema|teater|theatre",
+      "way_name": "taman|park|playground|kolam renang|swimming|gym|fitness|bioskop|cinema|teater|theatre"
+    },
+    "safety": {
+      "description": "Keamanan dan pencegahan: lampu jalan, crossing, polisi, pemadam",
+      "node_highway": "street_lamp|crossing|traffic_signals",
+      "way_highway": "street_lamp",
+      "way_traffic_calming": "yes",
+      "way_sidewalk": "yes",
+      "node_amenity": "fire_station|hospital",
+      "way_amenity": "fire_station|hospital",
+      "node_man_made": "surveillance",
+      "way_man_made": "surveillance",
+      "way_lit": "yes"
+    },
+    "police": {
+      "description": "Kepolisian: kantor polisi, polres, polsek",
+      "node_amenity": "police",
+      "way_amenity": "police",
+      "node_name": "polisi|polres|polsek|polda|satlantas|satpol|pp|police",
+      "way_name": "polisi|polres|polsek|polda|satlantas|satpol|pp|police"
+    },
+    "religious": {
+      "description": "Fasilitas keagamaan: masjid, gereja, kuil, vihara",
+      "node_amenity": "place_of_worship|mosque|church|temple|synagogue|hindu_temple|buddhist_temple",
+      "way_amenity": "place_of_worship|mosque|church|temple|synagogue|hindu_temple|buddhist_temple",
+      "node_name": "masjid|gudang|gereja|katedral|synagogue|hindu_temple|buddhist_temple",
+      "way_name": "masjid|gudang|gereja|katedral|synagogue|hindu_temple|buddhist_temple"
+    },
+    "accessibility": {
+      "description": "Aksesibilitas penyandang disabilitas: kerb rendah, elevator, toilet",
+      "node_barrier": "kerb",
+      "way_barrier": "kerb",
+      "node_kerb": "lowered",
+      "way_kerb": "lowered",
+      "node_highway": "elevator",
+      "way_highway": "elevator",
+      "node_amenity": "parking|toilets",
+      "way_amenity": "parking|toilets",
+      "node_tactile_paving": "yes",
+      "way_tactile_paving": "yes",
+      "node_wheelchair": "yes",
+      "way_wheelchair": "yes"
+    }
+  },
+  "settings": {
+    "default_distance": 500,
+    "output_format": "json",
+    "output_type": "center"
+  }
+}
