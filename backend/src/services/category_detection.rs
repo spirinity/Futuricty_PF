@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 
-/// Pattern configuration for category detection
 pub static PATTERN_CONFIG: Lazy<Value> = Lazy::new(|| {
     std::fs::read_to_string("config/category_patterns.json")
         .ok()
@@ -10,9 +9,6 @@ pub static PATTERN_CONFIG: Lazy<Value> = Lazy::new(|| {
         .unwrap_or(json!({}))
 });
 
-/// Pure function to extract tag value as string slice
-/// Returns empty string if tag not found or value is None
-/// Lifetime parameter 'a ensures returned &str is borrowed from tags
 fn get_tag_as_str<'a>(tags: &'a HashMap<String, String>, key: &str) -> &'a str {
     tags.get(key).map(|s| s.as_str()).unwrap_or("")
 }
@@ -43,8 +39,6 @@ fn name_contains_any(name: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|p| name.contains(p))
 }
 
-
-/// Category detection helper: Check if element is Education
 fn is_education(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let amenity_list = get_list(config, "education", "amenity_equals", &[]);
@@ -53,7 +47,6 @@ fn is_education(config: &Value, tags: &HashMap<String, String>, name: &str) -> b
     amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Police
 fn is_police(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let amenity_list = get_list(config, "police", "amenity_equals", &[]);
@@ -62,7 +55,6 @@ fn is_police(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool
     amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Market/Shopping
 fn is_market(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let shop = get_tag_as_str(tags, "shop");
@@ -76,7 +68,6 @@ fn is_market(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool
         || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Health facility
 fn is_health(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let amenity_list = get_list(config, "health", "amenity_equals", &[]);
@@ -91,7 +82,6 @@ fn is_health(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool
     amenity_list.iter().any(|a| a == amenity) || prefix_match || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Public Transport
 fn is_transport(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let public_transport = get_tag_as_str(tags, "public_transport");
     let highway = get_tag_as_str(tags, "highway");
@@ -108,7 +98,6 @@ fn is_transport(config: &Value, tags: &HashMap<String, String>, name: &str) -> b
         || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Religious place
 fn is_religious(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let amenity_list = get_list(config, "religious", "amenity_equals", &[]);
@@ -117,7 +106,6 @@ fn is_religious(config: &Value, tags: &HashMap<String, String>, name: &str) -> b
     amenity_list.iter().any(|a| a == amenity) || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element is Recreation facility
 fn is_recreation(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let leisure = get_tag_as_str(tags, "leisure");
@@ -131,7 +119,6 @@ fn is_recreation(config: &Value, tags: &HashMap<String, String>, name: &str) -> 
         || name_contains_any(name, &name_list)
 }
 
-/// Category detection helper: Check if element supports Walkability
 fn is_walkability(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
     let highway = get_tag_as_str(tags, "highway");
     let amenity = get_tag_as_str(tags, "amenity");
@@ -158,7 +145,6 @@ fn is_walkability(config: &Value, tags: &HashMap<String, String>, _name: &str) -
         || landuse_list.iter().any(|v| v == landuse)
 }
 
-/// Category detection helper: Check if element has Accessibility features
 fn is_accessibility(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let barrier = get_tag_as_str(tags, "barrier");
@@ -172,16 +158,19 @@ fn is_accessibility(config: &Value, tags: &HashMap<String, String>, _name: &str)
     let wheelchair_list = get_list(config, "accessibility", "wheelchair_equals", &[]);
     let amenity_list = get_list(config, "accessibility", "amenity_equals", &[]);
     let tactile_yes = get_bool(config, "accessibility", "tactile_paving_yes", true);
+    let tactile_paving = tags.get("tactile_paving")
+        .map(|s| s.as_str())
+        .map(|s| s == "yes")
+        .unwrap_or(false);
 
     barrier_list.iter().any(|v| v == barrier)
         || kerb_list.iter().any(|v| v == kerb)
         || highway_list.iter().any(|v| v == highway)
         || wheelchair_list.iter().any(|v| v == wheelchair)
         || amenity_list.iter().any(|v| v == amenity)
-        || (tactile_yes && tags.get("tactile_paving").map(|s| s == "yes").unwrap_or(false))
+        || (tactile_yes && tactile_paving)
 }
 
-/// Category detection helper: Check if element supports Safety
 fn is_safety(config: &Value, tags: &HashMap<String, String>, _name: &str) -> bool {
     let amenity = get_tag_as_str(tags, "amenity");
     let highway = get_tag_as_str(tags, "highway");
@@ -202,22 +191,27 @@ fn is_safety(config: &Value, tags: &HashMap<String, String>, _name: &str) -> boo
         || amenity_list.iter().any(|v| v == amenity)
 }
 
-
 pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> Option<&'static str> {
     let name = raw_name.to_lowercase();
-
     let cfg = &PATTERN_CONFIG;
 
-    if is_education(cfg, tags, &name) { return Some("education"); }
-    if is_police(cfg, tags, &name) { return Some("police"); }
-    if is_market(cfg, tags, &name) { return Some("market"); }
-    if is_health(cfg, tags, &name) { return Some("health"); }
-    if is_transport(cfg, tags, &name) { return Some("transport"); }
-    if is_religious(cfg, tags, &name) { return Some("religious"); }
-    if is_recreation(cfg, tags, &name) { return Some("recreation"); }
-    if is_walkability(cfg, tags, &name) { return Some("walkability"); }
-    if is_accessibility(cfg, tags, &name) { return Some("accessibility"); }
-    if is_safety(cfg, tags, &name) { return Some("safety"); }
+    type Detector = fn(&Value, &HashMap<String, String>, &str) -> bool;
+    
+    let detectors: [(Detector, &'static str); 10] = [
+        (is_education, "education"),
+        (is_police, "police"),
+        (is_market, "market"),
+        (is_health, "health"),
+        (is_transport, "transport"),
+        (is_religious, "religious"),
+        (is_recreation, "recreation"),
+        (is_walkability, "walkability"),
+        (is_accessibility, "accessibility"),
+        (is_safety, "safety"),
+    ];
 
-    None
+    detectors
+        .iter()
+        .find(|(detector, _)| detector(cfg, tags, &name))
+        .map(|(_, category)| *category)
 }

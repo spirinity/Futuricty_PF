@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 
 use crate::services::category_detection::detect_category;
 
-/// Scoring configuration loaded from JSON file
 pub static SCORING_CONFIG: Lazy<Value> = Lazy::new(|| {
     std::fs::read_to_string("config/scoring_config.json")
         .ok()
@@ -14,104 +13,121 @@ pub static SCORING_CONFIG: Lazy<Value> = Lazy::new(|| {
         .unwrap_or(json!({}))
 });
 
-const R: f64 = 6_371_000.0;  // Earth radius in meters
-const MAX_FACILITY_DISTANCE: f64 = 500.0;  // Maximum distance for facility contribution (meters)
+const R: f64 = 6_371_000.0;
+const MAX_FACILITY_DISTANCE: f64 = 500.0;
 
-/// Get contribution weights for a category from config
 fn get_contribution_weights(config: &Value, category: &str) -> (f64, f64, f64) {
-    let weights = &config["contribution_weights"];
-    let cat_weights = weights.get(category).or_else(|| weights.get("default"));
+    const DEFAULT_MAX_CONTRIB: f64 = 10.0;
+    const DEFAULT_DECAY: f64 = 0.8;
+    const DEFAULT_MIN_RATIO: f64 = 0.1;
     
-    if let Some(w) = cat_weights {
-        let max_contrib = w["max_contribution"].as_f64().unwrap_or(10.0);
-        let decay = w["decay_factor"].as_f64().unwrap_or(0.8);
-        let min_ratio = w["min_contribution_ratio"].as_f64().unwrap_or(0.1);
-        (max_contrib, decay, min_ratio)
-    } else {
-        (10.0, 0.8, 0.1)  // Default fallback
-    }
+    config["contribution_weights"]
+        .get(category)
+        .or_else(|| config["contribution_weights"].get("default"))
+        .and_then(|w| {
+            let max_contrib = w["max_contribution"].as_f64()?;
+            let decay = w["decay_factor"].as_f64()?;
+            let min_ratio = w["min_contribution_ratio"].as_f64()?;
+            Some((max_contrib, decay, min_ratio))
+        })
+        .unwrap_or((DEFAULT_MAX_CONTRIB, DEFAULT_DECAY, DEFAULT_MIN_RATIO))
 }
 
-/// Get score weights from config
 fn get_score_weights(config: &Value) -> (f64, f64, f64, f64, f64) {
-    let weights = &config["score_weights"];
-    // Fallback values matching config/scoring_config.json
-    let services_w = weights["services_weight"].as_f64().unwrap_or(0.3);
-    let mobility_w = weights["mobility_weight"].as_f64().unwrap_or(0.25);
-    let safety_w = weights["safety_weight"].as_f64().unwrap_or(0.25);
-    let environment_w = weights["environment_weight"].as_f64().unwrap_or(0.2);
-    let health_to_safety = weights["health_contribution_to_safety"].as_f64().unwrap_or(0.5);
+    const DEFAULT_SERVICES: f64 = 0.3;
+    const DEFAULT_MOBILITY: f64 = 0.25;
+    const DEFAULT_SAFETY: f64 = 0.25;
+    const DEFAULT_ENVIRONMENT: f64 = 0.2;
+    const DEFAULT_HEALTH_TO_SAFETY: f64 = 0.5;
     
-    (services_w, mobility_w, safety_w, environment_w, health_to_safety)
+    let weights = &config["score_weights"];
+    
+    (
+        weights["services_weight"].as_f64().unwrap_or(DEFAULT_SERVICES),
+        weights["mobility_weight"].as_f64().unwrap_or(DEFAULT_MOBILITY),
+        weights["safety_weight"].as_f64().unwrap_or(DEFAULT_SAFETY),
+        weights["environment_weight"].as_f64().unwrap_or(DEFAULT_ENVIRONMENT),
+        weights["health_contribution_to_safety"].as_f64().unwrap_or(DEFAULT_HEALTH_TO_SAFETY),
+    )
 }
 
-/// Get score clamping values from config
 fn get_score_clamps(config: &Value) -> (f64, f64) {
-    let weights = &config["score_weights"];
-    let min = weights["score_clamp_min"].as_f64().unwrap_or(0.0);
-    let max = weights["score_clamp_max"].as_f64().unwrap_or(100.0);
-    (min, max)
-}
-
-/// Get category mappings from config
-fn get_category_mappings(config: &Value) -> HashMap<String, Vec<String>> {
-    let mappings = &config["category_mappings"];
-    let mut result = HashMap::new();
+    const DEFAULT_MIN: f64 = 0.0;
+    const DEFAULT_MAX: f64 = 100.0;
     
-    for (key, categories) in mappings.as_object().unwrap_or(&Default::default()) {
-        let cats: Vec<String> = categories
-            .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-            .unwrap_or_default();
-        result.insert(key.clone(), cats);
-    }
-    result
+    let weights = &config["score_weights"];
+    (
+        weights["score_clamp_min"].as_f64().unwrap_or(DEFAULT_MIN),
+        weights["score_clamp_max"].as_f64().unwrap_or(DEFAULT_MAX),
+    )
 }
 
-/// Extract facility name from tags using config-driven field priority
+fn get_category_mappings(config: &Value) -> HashMap<String, Vec<String>> {
+    config["category_mappings"]
+        .as_object()
+        .map(|mappings| {
+            mappings
+                .iter()
+                .filter_map(|(key, categories)| {
+                    categories
+                        .as_array()
+                        .map(|arr| {
+                            let cats: Vec<String> = arr
+                                .iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect();
+                            (key.clone(), cats)
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn extract_facility_name(tags: &HashMap<String, String>, config: &Value) -> String {
+    const DEFAULT_FALLBACKS: &[&str] = &["name", "amenity"];
+    const DEFAULT_NAME: &str = "facility";
+    
     let name_config = &config["name_extraction"];
     
-    // Get fallback fields from config
-    let fallback_fields: Vec<String> = name_config["fallback_fields"]
+    let fallback_fields: Vec<&str> = name_config["fallback_fields"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-        .unwrap_or_else(|| vec!["name".to_string(), "amenity".to_string()]);
+        .and_then(|arr| {
+            let fields: Vec<&str> = arr
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            if fields.is_empty() { None } else { Some(fields) }
+        })
+        .unwrap_or_else(|| DEFAULT_FALLBACKS.to_vec());
     
-    // Try each field in order
-    for field in &fallback_fields {
-        if let Some(value) = tags.get(field) {
-            return value.clone();
-        }
-    }
-    
-    // Use default name from config
-    name_config["default_name"]
-        .as_str()
-        .unwrap_or("facility")
-        .to_string()
+    fallback_fields
+        .iter()
+        .find_map(|field| tags.get(*field).cloned())
+        .or_else(|| {
+            name_config["default_name"]
+                .as_str()
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| DEFAULT_NAME.to_string())
 }
 
-/// Calculate score for a category group using config mappings
 fn calculate_category_group_score(
     map: &HashMap<String, f64>,
     categories: &[String],
     health_contribution: f64,
     health_to_safety: f64,
 ) -> f64 {
-    // Special handling for safety group (includes health contribution)
-    if categories.contains(&"health".to_string()) && health_contribution > 0.0 {
-        let base: f64 = categories
-            .iter()
-            .map(|cat| *map.get(cat).unwrap_or(&0.0))
-            .sum();
-        return base + (health_contribution * health_to_safety);
-    }
-    
-    categories
+      let base: f64 = categories
         .iter()
         .map(|cat| *map.get(cat).unwrap_or(&0.0))
-        .sum()
+        .sum();
+    
+    base + if categories.contains(&"health".to_string()) && health_contribution > 0.0 {
+        health_contribution * health_to_safety
+    } else {
+        0.0
+    }
 }
 
 fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -127,28 +143,24 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     R * c
 }
 
-/// Pure function to check if distance is within threshold
 fn is_within_distance_threshold(distance: f64) -> bool {
     distance <= MAX_FACILITY_DISTANCE
 }
 
-/// Pure function to normalize distance (0.0 to 1.0)
 fn normalize_distance(distance: f64) -> f64 {
     distance / MAX_FACILITY_DISTANCE
 }
-/// Calculate contribution score with configurable weights
+
 fn calculate_contribution(distance: f64, category: &str, config: &Value) -> f64 {
-    if !is_within_distance_threshold(distance) {
-        return 0.0;
+    if is_within_distance_threshold(distance) {
+        let (max_contribution, decay, min_ratio) = get_contribution_weights(config, category);
+        let norm = normalize_distance(distance);
+        let contribution = max_contribution * (1.0 - norm).powf(decay);
+        let min_contribution = max_contribution * min_ratio;
+        contribution.max(min_contribution)
+    } else {
+        0.0
     }
-
-    let (max_contribution, decay, min_ratio) = get_contribution_weights(config, category);
-
-    let norm = normalize_distance(distance);
-    let contribution = max_contribution * (1.0 - norm).powf(decay);
-
-    let min_contribution = max_contribution * min_ratio;
-    contribution.max(min_contribution)
 }
 
 pub fn process_facilities(
@@ -192,7 +204,6 @@ pub fn process_facilities(
         .collect()
 }
 
-/// Pure function untuk increment category count secara immutable
 fn increment_category_count(mut counts: FacilityCounts, category: &str) -> FacilityCounts {
     match category {
         "health" => counts.health += 1,
@@ -210,7 +221,6 @@ fn increment_category_count(mut counts: FacilityCounts, category: &str) -> Facil
     counts
 }
 
-/// Pure function untuk update contribution map secara immutable
 fn update_contribution_map(
     mut map: HashMap<String, f64>,
     category: &str,
@@ -221,7 +231,6 @@ fn update_contribution_map(
 }
 
 pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
-    // Pure functional approach: no mut in fold closure
     let (counts, map) = facilities.iter().fold(
         (FacilityCounts::default(), HashMap::new()),
         |(counts, map), f| {
@@ -231,7 +240,6 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
         },
     );
 
-    // Load config-driven values
     let (clamp_min, clamp_max) = get_score_clamps(&SCORING_CONFIG);
     let normalize = |v: f64| v.clamp(clamp_min, clamp_max);
     
@@ -239,7 +247,6 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
     let (services_w, mobility_w, safety_w, environment_w, health_to_safety) = get_score_weights(&SCORING_CONFIG);
     let health_contribution = *map.get("health").unwrap_or(&0.0);
 
-    // Calculate scores using config mappings
     let services_score = category_mappings
         .get("services")
         .map(|cats| calculate_category_group_score(&map, cats, health_contribution, health_to_safety))
@@ -260,13 +267,11 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
         .map(|cats| calculate_category_group_score(&map, cats, health_contribution, health_to_safety))
         .unwrap_or(0.0);
 
-    // Normalize individual scores
     let services_normalized = normalize(services_score);
     let mobility_normalized = normalize(mobility_score);
     let safety_normalized = normalize(safety_score);
     let environment_normalized = normalize(environment_score);
 
-    // Calculate weighted overall score
     let overall = 
         (services_normalized * services_w) + 
         (mobility_normalized * mobility_w) + 

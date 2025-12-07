@@ -4,15 +4,13 @@ use std::error::Error;
 use futures::stream::{self, StreamExt};
 
 const OVERPASS_API_URL: &str = "https://overpass-api.de/api/interpreter";
-const RATE_LIMIT_DELAY_MS: u64 = 500;  // Delay antar request untuk rate limiting (milliseconds)
+const RATE_LIMIT_DELAY_MS: u64 = 500; 
+const MAX_CONCURRENT_REQUESTS: usize = 2;
 
-/// Pure function untuk rate limiting delay
-/// Reusable untuk berbagai API calls yang membutuhkan rate limiting
 async fn rate_limit_delay() {
     tokio::time::sleep(std::time::Duration::from_millis(RATE_LIMIT_DELAY_MS)).await;
 }
 
-/// Pure function untuk fetch data dari Overpass API dengan functional error handling
 async fn fetch_overpass_data(
     client: &Client,
     category: String,
@@ -25,11 +23,11 @@ async fn fetch_overpass_data(
         .body(query)
         .send()
         .await?
-        .error_for_status()  // Functional: auto-convert non-success to Err
+        .error_for_status()
         .map_err(|e| format!("Overpass API error: {}", e))?
         .json::<OverpassResponse>()
         .await
-        .map(|data| (category, data.elements))  // Functional transform
+        .map(|data| (category, data.elements))
         .map_err(|e| e.into())
 }
 
@@ -56,12 +54,11 @@ impl OverpassService {
                     fetch_overpass_data(&client, category, query).await
                 }
             })
-            .buffer_unordered(2)
+            .buffer_unordered(MAX_CONCURRENT_REQUESTS)
             .collect::<Vec<Result<(String, Vec<OverpassElement>), Box<dyn Error + Send + Sync>>>>()
             .await
             .into_iter()
             .collect::<Result<Vec<(String, Vec<OverpassElement>)>, Box<dyn Error + Send + Sync>>>()?;
-
         Ok(facilities)
     }
 }

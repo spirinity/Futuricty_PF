@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Macro untuk auto-generate common derive traits (Debug, Deserialize, Serialize, Clone)
-/// Pure functional: eliminates repetitive derive decorators
 #[macro_export]
 macro_rules! serde_clone {
     ($($body:tt)*) => {
@@ -11,7 +9,6 @@ macro_rules! serde_clone {
     };
 }
 
-/// Macro untuk struct yang perlu Default trait juga
 #[macro_export]
 macro_rules! serde_clone_default {
     ($($body:tt)*) => {
@@ -20,7 +17,6 @@ macro_rules! serde_clone_default {
     };
 }
 
-/// Macro untuk struct yang tidak perlu Clone
 #[macro_export]
 macro_rules! serde_only {
     ($($body:tt)*) => {

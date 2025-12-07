@@ -20,7 +20,6 @@ use crate::services::overpass::OverpassService;
 
 use crate::services::score_calculator::{process_facilities, calculate_scores};
 
-/// Cached query configuration
 pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
     std::fs::read_to_string("config/queries.json")
         .ok()
@@ -28,23 +27,17 @@ pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
         .unwrap_or(json!({}))
 });
 
-const MAX_FACILITY_DISTANCE: f64 = 500.0;  // Jarak maksimal fasilitas dari lokasi (meter)
-const SEARCH_RADIUS: i32 = 500;            // Radius pencarian ke API Overpass (meter)
-const MAX_NEARBY_FACILITIES: usize = 10;   // Jumlah maksimal fasilitas terdekat yang ditampilkan
-const RATE_LIMIT_DELAY_SECS: u64 = 2;     // Delay untuk rate limiting API Overpass (detik)
+const MAX_FACILITY_DISTANCE: f64 = 500.0; 
+const SEARCH_RADIUS: i32 = 500;
+const MAX_NEARBY_FACILITIES: usize = 10;
+const RATE_LIMIT_DELAY_SECS: u64 = 2;
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TYPES & STRUCTURES
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// Pure Functional: Deduplication State untuk fold operations
 struct DeduplicationState {
     facilities: Vec<crate::models::Facility>,
     seen_ids: HashSet<String>,
 }
 
 impl DeduplicationState {
-    /// Membuat state baru (pure constructor)
     fn new() -> Self {
         DeduplicationState {
             facilities: Vec::new(),
@@ -52,7 +45,6 @@ impl DeduplicationState {
         }
     }
 
-    /// Menambah facility jika belum ada (pure function, return new state)
     fn add_facility(mut self, facility: crate::models::Facility) -> Self {
         if self.seen_ids.insert(facility.id.clone()) {
             self.facilities.push(facility);
@@ -60,7 +52,6 @@ impl DeduplicationState {
         self
     }
 
-    /// Mengkonversi state ke unique facilities list (pure extractor)
     fn into_unique_facilities(self) -> Vec<crate::models::Facility> {
         self.facilities
     }
@@ -76,13 +67,17 @@ async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("listening on {}", addr);
 
-   let listener = tokio::net::TcpListener::bind(addr)
-    .await
-    .expect(&format!("Failed to bind to {}", addr));
-
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => {
+            if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("Server runtime error: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to bind to {}: {}", addr, e);
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn root() -> &'static str {
@@ -92,22 +87,23 @@ async fn root() -> &'static str {
 pub async fn calculate_score(
     Json(payload): Json<CalculateScoreRequest>
 ) -> Result<Json<Vec<LocationData>>, (StatusCode, String)> {
-    // Validate locations exist
     if payload.locations.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Locations array cannot be empty".to_string()));
     }
 
-    // Validate each location's coordinates
-    for loc in &payload.locations {
-        if !(loc.lat >= -90.0 && loc.lat <= 90.0) {
-            return Err((StatusCode::BAD_REQUEST, 
-                format!("Invalid latitude: {}. Must be between -90 and 90", loc.lat)));
-        }
-        if !(loc.lng >= -180.0 && loc.lng <= 180.0) {
-            return Err((StatusCode::BAD_REQUEST, 
-                format!("Invalid longitude: {}. Must be between -180 and 180", loc.lng)));
-        }
-    }
+    payload.locations.iter()
+        .find_map(|loc| -> Option<Result<(), (StatusCode, String)>> {
+            if !(loc.lat >= -90.0 && loc.lat <= 90.0) {
+                Some(Err((StatusCode::BAD_REQUEST, 
+                    format!("Invalid latitude: {}. Must be between -90 and 90", loc.lat))))
+            } else if !(loc.lng >= -180.0 && loc.lng <= 180.0) {
+                Some(Err((StatusCode::BAD_REQUEST, 
+                    format!("Invalid longitude: {}. Must be between -180 and 180", loc.lng))))
+            } else {
+                None
+            }
+        })
+        .transpose()?;
 
     let overpass_service = Arc::new(OverpassService::new());
 
@@ -163,11 +159,6 @@ pub async fn calculate_score(
     Ok(Json(location_data_list))
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// HELPER FUNCTIONS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/// Parse key into element_type and attribute
 fn parse_config_key(key: &str) -> Option<(&str, &str)> {
     let parts: Vec<&str> = key.split('_').collect();
     if parts.len() == 2 {
@@ -177,7 +168,6 @@ fn parse_config_key(key: &str) -> Option<(&str, &str)> {
     }
 }
 
-/// Build single Overpass query from config entry
 fn build_single_query(
     element_type: &str,
     attribute: &str,
@@ -192,7 +182,6 @@ fn build_single_query(
     )
 }
 
-/// Extract queries from category config object
 fn extract_queries_from_config(
     category_config: &Value,
     lat: f64,
@@ -218,7 +207,6 @@ fn extract_queries_from_config(
         .unwrap_or_default()
 }
 
-/// Build Overpass query dari config JSON dengan functional approach (no mut)
 fn build_query_from_config(category: &str, lat: f64, lng: f64, distance: i32) -> Option<String> {
     QUERY_CONFIG
         .get("queries")
@@ -228,7 +216,7 @@ fn build_query_from_config(category: &str, lat: f64, lng: f64, distance: i32) ->
             if queries.is_empty() {
                 None
             } else {
-                Some(queries.join("\n            "))
+                Some(queries.join(" "))
             }
         })
 }
@@ -236,7 +224,6 @@ fn build_query_from_config(category: &str, lat: f64, lng: f64, distance: i32) ->
 fn generate_overpass_query(category: &str, lat: f64, lng: f64) -> String {
     let distance = SEARCH_RADIUS;
 
-    // Load dari config JSON
     let query_body = build_query_from_config(category, lat, lng, distance)
         .unwrap_or_else(|| {
             eprintln!("WARNING: Category '{}' not found in config, using default query", category);
