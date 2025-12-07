@@ -33,6 +33,7 @@ async fn fetch_overpass_data(
         .map_err(|e| e.into())
 }
 
+#[derive(Clone)]
 pub struct OverpassService {
     client: Client,
 }
@@ -59,8 +60,7 @@ impl OverpassService {
             .collect::<Vec<Result<(String, Vec<OverpassElement>), Box<dyn Error + Send + Sync>>>>()
             .await
             .into_iter()
-            .filter_map(|result| result.map_err(|e| eprintln!("Error fetching data: {}", e)).ok())
-            .collect();
+            .collect::<Result<Vec<(String, Vec<OverpassElement>)>, Box<dyn Error + Send + Sync>>>()?;
 
         Ok(facilities)
     }

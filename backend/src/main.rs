@@ -12,7 +12,6 @@ use tower_http::cors::CorsLayer;
 use futures::stream::{self, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::fs;
 use serde_json::{json, Value};
 use once_cell::sync::Lazy;
 
@@ -20,6 +19,23 @@ use crate::models::{CalculateScoreRequest, LocationData};
 use crate::services::overpass::OverpassService;
 
 use crate::services::score_calculator::{process_facilities, calculate_scores};
+
+/// Cached query configuration
+pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
+    std::fs::read_to_string("config/queries.json")
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or(json!({}))
+});
+
+const MAX_FACILITY_DISTANCE: f64 = 500.0;  // Jarak maksimal fasilitas dari lokasi (meter)
+const SEARCH_RADIUS: i32 = 500;            // Radius pencarian ke API Overpass (meter)
+const MAX_NEARBY_FACILITIES: usize = 10;   // Jumlah maksimal fasilitas terdekat yang ditampilkan
+const RATE_LIMIT_DELAY_SECS: u64 = 2;     // Delay untuk rate limiting API Overpass (detik)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TYPES & STRUCTURES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // Pure Functional: Deduplication State untuk fold operations
 struct DeduplicationState {
@@ -50,12 +66,6 @@ impl DeduplicationState {
     }
 }
 
-// Konstanta Global untuk Distance
-const MAX_FACILITY_DISTANCE: f64 = 500.0;  // Jarak maksimal fasilitas dari lokasi (meter)
-const SEARCH_RADIUS: i32 = 500;            // Radius pencarian ke API Overpass (meter)
-const MAX_NEARBY_FACILITIES: usize = 10;   // Jumlah maksimal fasilitas terdekat yang ditampilkan
-const RATE_LIMIT_DELAY_SECS: u64 = 2;     // Delay untuk rate limiting API Overpass (detik)
-
 #[tokio::main]
 async fn main() {
     let app = Router::new()
@@ -66,17 +76,38 @@ async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("listening on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+   let listener = tokio::net::TcpListener::bind(addr)
+    .await
+    .expect(&format!("Failed to bind to {}", addr));
+
+    axum::serve(listener, app)
+        .await
+        .expect("Server error");
 }
 
 async fn root() -> &'static str {
     "Futuricity Backend is running!"
 }
 
-async fn calculate_score(
-    Json(payload): Json<CalculateScoreRequest>,
+pub async fn calculate_score(
+    Json(payload): Json<CalculateScoreRequest>
 ) -> Result<Json<Vec<LocationData>>, (StatusCode, String)> {
+    // Validate locations exist
+    if payload.locations.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Locations array cannot be empty".to_string()));
+    }
+
+    // Validate each location's coordinates
+    for loc in &payload.locations {
+        if !(loc.lat >= -90.0 && loc.lat <= 90.0) {
+            return Err((StatusCode::BAD_REQUEST, 
+                format!("Invalid latitude: {}. Must be between -90 and 90", loc.lat)));
+        }
+        if !(loc.lng >= -180.0 && loc.lng <= 180.0) {
+            return Err((StatusCode::BAD_REQUEST, 
+                format!("Invalid longitude: {}. Must be between -180 and 180", loc.lng)));
+        }
+    }
 
     let overpass_service = Arc::new(OverpassService::new());
 
@@ -109,7 +140,8 @@ async fn calculate_score(
 
                 let nearby_facilities: Vec<String> = all_facilities.iter()
                     .take(MAX_NEARBY_FACILITIES)
-                    .map(|f| f.name.clone())
+                    .map(|f| f.name.as_str())
+                    .map(|s| s.to_string())
                     .collect();
                 
                 tokio::time::sleep(std::time::Duration::from_secs(RATE_LIMIT_DELAY_SECS)).await;
@@ -131,16 +163,9 @@ async fn calculate_score(
     Ok(Json(location_data_list))
 }
 
-/// Cached query configuration
-static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
-    fs::read_to_string("config/queries.json")
-        .ok()
-        .and_then(|content| serde_json::from_str(&content).ok())
-        .unwrap_or_else(|| {
-            eprintln!("Warning: Could not load config/queries.json, using fallback");
-            json!({})
-        })
-});
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPER FUNCTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /// Parse key into element_type and attribute
 fn parse_config_key(key: &str) -> Option<(&str, &str)> {

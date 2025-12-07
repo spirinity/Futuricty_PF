@@ -2,30 +2,19 @@ use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 
+/// Pattern configuration for category detection
+pub static PATTERN_CONFIG: Lazy<Value> = Lazy::new(|| {
+    std::fs::read_to_string("config/category_patterns.json")
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or(json!({}))
+});
+
 /// Pure function to extract tag value as string slice
 /// Returns empty string if tag not found or value is None
 /// Lifetime parameter 'a ensures returned &str is borrowed from tags
 fn get_tag_as_str<'a>(tags: &'a HashMap<String, String>, key: &str) -> &'a str {
     tags.get(key).map(|s| s.as_str()).unwrap_or("")
-}
-
-static PATTERN_CONFIG: Lazy<Value> = Lazy::new(load_category_patterns);
-
-/// Load category pattern configuration from JSON file
-fn load_category_patterns() -> Value {
-    let path = "config/category_patterns.json";
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            serde_json::from_str(&content).unwrap_or_else(|e| {
-                eprintln!("ERROR: Failed to parse category_patterns.json: {}", e);
-                json!({})
-            })
-        },
-        Err(e) => {
-            eprintln!("ERROR: Could not read category_patterns.json from '{}': {}", path, e);
-            json!({})
-        }
-    }
 }
 
 fn get_list(config: &Value, category: &str, key: &str, default: &[&str]) -> Vec<String> {
@@ -53,6 +42,7 @@ fn get_bool(config: &Value, category: &str, key: &str, default: bool) -> bool {
 fn name_contains_any(name: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|p| name.contains(p))
 }
+
 
 /// Category detection helper: Check if element is Education
 fn is_education(config: &Value, tags: &HashMap<String, String>, name: &str) -> bool {
@@ -212,9 +202,7 @@ fn is_safety(config: &Value, tags: &HashMap<String, String>, _name: &str) -> boo
         || amenity_list.iter().any(|v| v == amenity)
 }
 
-/// Pure functional category detection
-/// Checks each category in order and returns the first matching category
-/// Returns None if no category matches
+
 pub fn detect_category(tags: &HashMap<String, String>, raw_name: &str) -> Option<&'static str> {
     let name = raw_name.to_lowercase();
 

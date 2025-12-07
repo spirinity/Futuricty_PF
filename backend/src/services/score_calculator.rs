@@ -6,23 +6,16 @@ use serde_json::{json, Value};
 
 use crate::services::category_detection::detect_category;
 
+/// Scoring configuration loaded from JSON file
+pub static SCORING_CONFIG: Lazy<Value> = Lazy::new(|| {
+    std::fs::read_to_string("config/scoring_config.json")
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or(json!({}))
+});
+
 const R: f64 = 6_371_000.0;  // Earth radius in meters
 const MAX_FACILITY_DISTANCE: f64 = 500.0;  // Maximum distance for facility contribution (meters)
-
-/// Load scoring configuration from JSON file
-fn load_scoring_config() -> Value {
-    let config_path = "config/scoring_config.json";
-    match std::fs::read_to_string(config_path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| {
-            eprintln!("Warning: Failed to parse scoring config, using defaults");
-            json!({})
-        }),
-        Err(_) => {
-            eprintln!("Warning: scoring_config.json not found, using default weights");
-            json!({})
-        }
-    }
-}
 
 /// Get contribution weights for a category from config
 fn get_contribution_weights(config: &Value, category: &str) -> (f64, f64, f64) {
@@ -42,11 +35,13 @@ fn get_contribution_weights(config: &Value, category: &str) -> (f64, f64, f64) {
 /// Get score weights from config
 fn get_score_weights(config: &Value) -> (f64, f64, f64, f64, f64) {
     let weights = &config["score_weights"];
-    let services_w = weights["services_weight"].as_f64().unwrap_or(0.30);
+    // Fallback values matching config/scoring_config.json
+    let services_w = weights["services_weight"].as_f64().unwrap_or(0.3);
     let mobility_w = weights["mobility_weight"].as_f64().unwrap_or(0.25);
     let safety_w = weights["safety_weight"].as_f64().unwrap_or(0.25);
-    let environment_w = weights["environment_weight"].as_f64().unwrap_or(0.20);
+    let environment_w = weights["environment_weight"].as_f64().unwrap_or(0.2);
     let health_to_safety = weights["health_contribution_to_safety"].as_f64().unwrap_or(0.5);
+    
     (services_w, mobility_w, safety_w, environment_w, health_to_safety)
 }
 
@@ -141,7 +136,6 @@ fn is_within_distance_threshold(distance: f64) -> bool {
 fn normalize_distance(distance: f64) -> f64 {
     distance / MAX_FACILITY_DISTANCE
 }
-
 /// Calculate contribution score with configurable weights
 fn calculate_contribution(distance: f64, category: &str, config: &Value) -> f64 {
     if !is_within_distance_threshold(distance) {
@@ -163,7 +157,6 @@ pub fn process_facilities(
     user_lng: f64,
 ) -> Vec<Facility> {
     static EMPTY: Lazy<HashMap<String, String>> = Lazy::new(|| HashMap::new());
-    static CONFIG: Lazy<Value> = Lazy::new(load_scoring_config);
 
     elements
         .par_iter()
@@ -175,11 +168,11 @@ pub fn process_facilities(
 
             let tags_ref = element.tags.as_ref().unwrap_or(&EMPTY);
 
-            let name = extract_facility_name(tags_ref, &CONFIG);
+            let name = extract_facility_name(tags_ref, &SCORING_CONFIG);
 
             let actual_category = detect_category(tags_ref, &name)?;
 
-            let contribution = calculate_contribution(distance, actual_category, &CONFIG);
+            let contribution = calculate_contribution(distance, actual_category, &SCORING_CONFIG);
 
             if contribution <= 0.0 {
                 return None;
@@ -228,8 +221,6 @@ fn update_contribution_map(
 }
 
 pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
-    static CONFIG: Lazy<Value> = Lazy::new(load_scoring_config);
-
     // Pure functional approach: no mut in fold closure
     let (counts, map) = facilities.iter().fold(
         (FacilityCounts::default(), HashMap::new()),
@@ -241,11 +232,11 @@ pub fn calculate_scores(facilities: &[Facility]) -> (Scores, FacilityCounts) {
     );
 
     // Load config-driven values
-    let (clamp_min, clamp_max) = get_score_clamps(&CONFIG);
+    let (clamp_min, clamp_max) = get_score_clamps(&SCORING_CONFIG);
     let normalize = |v: f64| v.clamp(clamp_min, clamp_max);
     
-    let category_mappings = get_category_mappings(&CONFIG);
-    let (services_w, mobility_w, safety_w, environment_w, health_to_safety) = get_score_weights(&CONFIG);
+    let category_mappings = get_category_mappings(&SCORING_CONFIG);
+    let (services_w, mobility_w, safety_w, environment_w, health_to_safety) = get_score_weights(&SCORING_CONFIG);
     let health_contribution = *map.get("health").unwrap_or(&0.0);
 
     // Calculate scores using config mappings
