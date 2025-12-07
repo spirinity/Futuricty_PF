@@ -1099,7 +1099,7 @@ pub mod category_detection;
 
 ### 7. Config Category Patterns (`config/category_patterns.json`)
 
-File ini berfungsi sebagai..........
+File category_patterns.json ini berfungsi sebagai kumpulan aturan pencarian (search rules) yang menentukan bagaiman setiap titik/fasilitas dari OpenStreetMao diklasifikasikan ke dalam kategori tertentu seperti education, health, market,dll
 
 ```json
 {
@@ -1273,11 +1273,14 @@ File ini berfungsi sebagai..........
 
 **Penjelasan:**
 
-- **.....:** Dalam json, file ini digunakan untuk .......
+- **pattern rules:** Digunakan untuk menentukan pola pencocokan berdasarkan tag OpenStreetMap, seperti amenity, shop, highway, name, dll. Setiap kategori memiliki kombinasi aturan tertentu. Aturan-aturan ini dipakai backend untuk mendeteksi apakah suatu titik masuk kategori yang benar.
+- **category definitions:** setiap kategori (education, market, dll) berisi daftar pola yang menjelaskan ciri-ciri fasilitas tersebut.
+- **Flexible Matching:**digunakan untuk membuat sistem pencarian lebih fleksibel dengan menggabungkan berbagai tag dan nama.
+- **multi-tag support:** Dalam JSON, aturan disusun agar satu kategori bisa dicocokkan menggunakan banyak tag sekaligus.
 
 ### 8. Config Queries (`config/queries.json`)
 
-File ini berfungsi sebagai..........
+File ini berfungsi sebagai konfigurasi utama yang mendefinisikan pola pencarian (query patterns) untuk mengambil data fasilitas dari OpenStreetMap berdasarkan kategori.
 
 ```json
 {
@@ -1387,11 +1390,14 @@ File ini berfungsi sebagai..........
 
 **Penjelasan:**
 
-- **.....:** Dalam json, file ini digunakan untuk .......
+- **queries:** Dalam json, bagian ini digunakan untuk menyimpan pola pencarian dari setiap kategori seperti health, education, market, dll.
+- **Filter tag OSM:** Dalam json, bagian queries digunakan untuk mendefinisikan tag apa saja yang harus dicocokkan saat menyusun query Overpass.
+- **settings:** bagian ini digunakan untuk mengatur jarak pencarian default dan format output hasil data dari Overpass
+
 
 ### 9. Config Scoring (`config/scoring_config.json`)
 
-File ini berfungsi sebagai..........
+File ini berfungsi sebagai konfigurasi  perhitungan skor yang menentukan bagaimana setiap kategori fasilitas memberikan kontribusi terhadap penilaian akhir suatu lokasi.
 
 ```json
 {
@@ -1476,7 +1482,10 @@ File ini berfungsi sebagai..........
 
 **Penjelasan:**
 
-- **.....:** Dalam json, file ini digunakan untuk .......
+- **Contribution Weights:** Dalam json, bagian ini digunakan untuk mengatur bobot, kontribusi maksimal, dan tingkat penurunan (decay) tiap kategori saat perhitungan skor dilakukan.
+- **Score Weights:** bagian ini digunakan untuk presentase pengaruh setiap kelompok skor (services, mobility, safety, environment) terhadap total skor akhi
+- **Category Mappings:** bagian ini digunakan untuk memetakan kategori kecil (health, market, dll) kedalam kelompok skor besar seperti services atau safety.
+- **Name Extraction:** digunakan untuk menetukan field fallback yang dipakai untuk mengambil nama fasilitas jika nama utamanya tidak tersedia.
 
 ### Screenshot
 
