@@ -9,7 +9,6 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
-use futures::stream::{self, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
 use serde_json::{json, Value};
@@ -19,6 +18,7 @@ use crate::models::{CalculateScoreRequest, LocationData};
 use crate::services::overpass::OverpassService;
 
 use crate::services::score_calculator::{process_facilities, calculate_scores};
+use futures::stream::{self, StreamExt};
 
 pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
     std::fs::read_to_string("config/queries.json")
@@ -27,10 +27,9 @@ pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
         .unwrap_or(json!({}))
 });
 
-const MAX_FACILITY_DISTANCE: f64 = 500.0; 
+const MAX_FACILITY_DISTANCE: f64 = 500.0;
 const SEARCH_RADIUS: i32 = 500;
 const MAX_NEARBY_FACILITIES: usize = 10;
-const RATE_LIMIT_DELAY_SECS: u64 = 2;
 
 struct DeduplicationState {
     facilities: Vec<crate::models::Facility>,
@@ -81,82 +80,147 @@ async fn main() {
 }
 
 async fn root() -> &'static str {
-    "Futuricity Backend is running!"
+    "Futuricty Backend is running!"
+}
+
+async fn process_location(
+    service: &Arc<OverpassService>,
+    loc: &crate::models::SingleLocationRequest,
+    index: usize,
+    total: usize,
+) -> Result<LocationData, (StatusCode, String)> {
+    println!("Processing location {} of {}...", index + 1, total);
+    
+    let categories = vec![
+        "health", "education", "market", "transport", "walkability",
+        "recreation", "safety", "police", "religious", "accessibility"
+    ];
+
+    let queries: Vec<(String, String)> = categories.iter().map(|&cat| {
+        let query = generate_overpass_query(cat, loc.lat, loc.lng);
+        (cat.to_string(), query)
+    }).collect();
+
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY: u64 = 5;
+
+    let attempt_results = {
+        let queries_arc = Arc::new(queries);
+        let initial = (0..MAX_RETRIES).map(|attempt| {
+            let q = queries_arc.clone();
+            let s = service.clone();
+            async move {
+                if attempt > 0 {
+                    let delay_secs = INITIAL_DELAY * 2u64.pow(attempt - 1);
+                    println!("Location retry {} after {} seconds...", attempt, delay_secs);
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                }
+                
+                s.fetch_facilities((*q).clone()).await
+            }
+        }).collect::<Vec<_>>();
+        
+        let result = stream::iter(initial)
+            .fold(None, |acc, fut| async move {
+                if let Some(Ok(_)) = acc {
+                    acc
+                } else {
+                    Some(fut.await)
+                }
+            })
+            .await;
+
+        match result {
+            Some(Ok(res)) => Ok(res),
+            Some(Err(e)) => Err(e),
+            None => Err(Box::<dyn std::error::Error + Send + Sync>::from("No attempts executed")),
+        }
+    };
+
+    let facilities_data = attempt_results
+        .map_err(|e| {
+            (StatusCode::SERVICE_UNAVAILABLE, 
+                format!("Failed to fetch data for location {}: {}", index + 1, e))
+        })?;
+
+    // Process facilities - pure functional
+    let all_facilities = facilities_data
+        .into_iter()
+        .flat_map(|(_category, elements)| {
+            process_facilities(&elements, loc.lat, loc.lng)
+        })
+        .filter(|f| f.distance <= MAX_FACILITY_DISTANCE)
+        .fold(DeduplicationState::new(), |state, facility| state.add_facility(facility))
+        .into_unique_facilities();
+
+    println!("✓ Processed {} unique facilities for location {}", all_facilities.len(), index + 1);
+
+    let (scores, facility_counts) = calculate_scores(&all_facilities);
+    
+    let nearby_facilities: Vec<String> = all_facilities.iter()
+        .take(MAX_NEARBY_FACILITIES)
+        .map(|f| f.name.clone())
+        .collect();
+    
+    Ok(LocationData {   
+        address: format!("{}, {}", loc.lat, loc.lng),
+        facility_counts,
+        scores,
+        nearby_facilities,
+        facilities: all_facilities,
+    })
 }
 
 pub async fn calculate_score(
     Json(payload): Json<CalculateScoreRequest>
 ) -> Result<Json<Vec<LocationData>>, (StatusCode, String)> {
+    println!("Received request with {} locations", payload.locations.len());
+    
     if payload.locations.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Locations array cannot be empty".to_string()));
     }
 
-    payload.locations.iter()
-        .find_map(|loc| -> Option<Result<(), (StatusCode, String)>> {
-            if !(loc.lat >= -90.0 && loc.lat <= 90.0) {
-                Some(Err((StatusCode::BAD_REQUEST, 
-                    format!("Invalid latitude: {}. Must be between -90 and 90", loc.lat))))
-            } else if !(loc.lng >= -180.0 && loc.lng <= 180.0) {
-                Some(Err((StatusCode::BAD_REQUEST, 
-                    format!("Invalid longitude: {}. Must be between -180 and 180", loc.lng))))
-            } else {
-                None
-            }
-        })
-        .transpose()?;
+    for loc in &payload.locations {
+        if !(loc.lat >= -90.0 && loc.lat <= 90.0) {
+            return Err((StatusCode::BAD_REQUEST, 
+                format!("Invalid latitude: {}. Must be between -90 and 90", loc.lat)));
+        }
+        if !(loc.lng >= -180.0 && loc.lng <= 180.0) {
+            return Err((StatusCode::BAD_REQUEST, 
+                format!("Invalid longitude: {}. Must be between -180 and 180", loc.lng)));
+        }
+    }
 
     let overpass_service = Arc::new(OverpassService::new());
-
-    let location_data_list = stream::iter(payload.locations)
-        .then(|loc| {
-            let service = overpass_service.clone();
-            async move {
-                let categories = vec![
-                    "health", "education", "market", "transport", "walkability",
-                    "recreation", "safety", "police", "religious", "accessibility"
-                ];
-
-                let queries: Vec<(String, String)> = categories.iter().map(|&cat| {
-                    let query = generate_overpass_query(cat, loc.lat, loc.lng);
-                    (cat.to_string(), query)
-                }).collect();
-
-                let facilities_data = service.fetch_facilities(queries).await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-                let all_facilities = facilities_data.into_iter() 
-                    .flat_map(|(_category, elements)| {
-                        process_facilities(&elements, loc.lat, loc.lng)
-                    })
-                    .filter(|f| f.distance <= MAX_FACILITY_DISTANCE)
-                    .fold(DeduplicationState::new(), |state, facility| state.add_facility(facility))
-                    .into_unique_facilities();
-
-                let (scores, facility_counts) = calculate_scores(&all_facilities);
-
-                let nearby_facilities: Vec<String> = all_facilities.iter()
-                    .take(MAX_NEARBY_FACILITIES)
-                    .map(|f| f.name.as_str())
-                    .map(|s| s.to_string())
-                    .collect();
+    let total_locations = payload.locations.len();
+    
+    let results = stream::iter(payload.locations.iter().enumerate())
+        .fold(
+            Ok::<Vec<LocationData>, (StatusCode, String)>(Vec::new()),
+            |acc_result, (i, loc)| {
+                let service = overpass_service.clone();
+                let total = total_locations;
                 
-                tokio::time::sleep(std::time::Duration::from_secs(RATE_LIMIT_DELAY_SECS)).await;
-
-                Ok(LocationData {   
-                    address: format!("{}, {}", loc.lat, loc.lng),
-                    facility_counts,
-                    scores,
-                    nearby_facilities,
-                    facilities: all_facilities,
-                })
+                async move {
+                    match acc_result {
+                        Ok(acc) => {
+                            let location_data = process_location(&service, loc, i, total).await?;
+                            
+                            if i < total - 1 {
+                                println!("Waiting 3 seconds before next location...");
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                            }
+                            
+                            Ok([acc, vec![location_data]].concat())
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
             }
-        })
-        .collect::<Vec<Result<LocationData, (StatusCode, String)>>>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<LocationData>, (StatusCode, String)>>()?;
+        )
+        .await?;
 
-    Ok(Json(location_data_list))
+    Ok(Json(results))
 }
 
 fn parse_config_key(key: &str) -> Option<(&str, &str)> {
@@ -232,4 +296,3 @@ fn generate_overpass_query(category: &str, lat: f64, lng: f64) -> String {
 
     format!(r#"[out:json];({});out center;"#, query_body)
 }
-
