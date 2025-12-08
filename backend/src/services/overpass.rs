@@ -58,7 +58,7 @@ async fn fetch_overpass_data_with_retry(
                         if !should_retry || attempt + 1 >= MAX_RETRIES_PER_CATEGORY {
                             return Err(format!("HTTP {}: {}", status, e).into());
                         }
-                    }
+                    }   
                 }
             },
             Err(e) => {

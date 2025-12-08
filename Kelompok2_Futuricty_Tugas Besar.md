@@ -126,6 +126,7 @@ use crate::models::{CalculateScoreRequest, LocationData};
 use crate::services::overpass::OverpassService;
 
 use crate::services::score_calculator::{process_facilities, calculate_scores};
+use futures::stream::{self, StreamExt};
 
 pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
     std::fs::read_to_string("config/queries.json")
@@ -137,9 +138,8 @@ pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
 const MAX_FACILITY_DISTANCE: f64 = 500.0;
 const SEARCH_RADIUS: i32 = 500;
 const MAX_NEARBY_FACILITIES: usize = 10;
-const RATE_LIMIT_DELAY_SECS: u64 = 3;
-const MAX_RETRIES: u32 = 5;
-const INITIAL_RETRY_DELAY_SECS: u64 = 5;
+const MAX_RETRIES: u32 = 3;
+const INITIAL_DELAY: u64 = 5;
 
 struct DeduplicationState {
     facilities: Vec<crate::models::Facility>,

@@ -30,6 +30,8 @@ pub static QUERY_CONFIG: Lazy<Value> = Lazy::new(|| {
 const MAX_FACILITY_DISTANCE: f64 = 500.0;
 const SEARCH_RADIUS: i32 = 500;
 const MAX_NEARBY_FACILITIES: usize = 10;
+const MAX_RETRIES: u32 = 3;
+const INITIAL_DELAY: u64 = 5;
 
 struct DeduplicationState {
     facilities: Vec<crate::models::Facility>,
@@ -100,9 +102,6 @@ async fn process_location(
         let query = generate_overpass_query(cat, loc.lat, loc.lng);
         (cat.to_string(), query)
     }).collect();
-
-    const MAX_RETRIES: u32 = 3;
-    const INITIAL_DELAY: u64 = 5;
 
     let attempt_results = {
         let queries_arc = Arc::new(queries);
